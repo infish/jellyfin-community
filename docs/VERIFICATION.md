@@ -2,6 +2,13 @@
 
 ## Community follow-up, 2026-10-12
 
+Release preparation follow-up: targeted Web security dependency updates passed
+all 169 upstream/custom tests, typecheck and a production build. The backend
+still passes its five tests. The initial public repository build also passed
+independently on GitHub. See SECURITY-REVIEW.md for remaining advisories and
+promotion gates. The LGPL subtitle renderer's npm gitHead was checked against
+its exact Git source, and all pinned native submodules were fetched successfully.
+
 Publication preparation: initialized an isolated deployment repository, verified
 that the saved patch reproduces the exact customized source tree from its pinned
 upstream commit, and validated the deployment/workflow YAML. Five backend tests

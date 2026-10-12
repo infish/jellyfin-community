@@ -18,6 +18,13 @@ A patch by itself is not the complete corresponding source. Backend dependency
 sources are included in a separate archive. Preserve these assets while the
 associated images are distributed.
 
+The bundled `@jellyfin/libass-wasm` 4.2.4 includes LGPL native subtitle libraries.
+Its npm gitHead matches JavascriptSubtitlesOctopus commit
+`2d4ec9b16a639f23733cd32982e09e0eb757f092`. Release assets additionally include
+that exact source, its recursively pinned native libraries and their build
+scripts/licences. `scripts/archive-subtitle-source.sh` records their revisions.
+An npm package containing precompiled WASM alone does not supply those sources.
+
 Web dependencies retain their own licence files and generated bundle notices.
 Backend dependencies retain their licence files in the image's `node_modules`.
 Do not remove upstream or dependency notices when changing the build.

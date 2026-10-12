@@ -18,5 +18,6 @@ LABEL org.opencontainers.image.source="https://github.com/infish/jellyfin-commun
       org.opencontainers.image.title="Jellyfin Community Web"
 COPY --from=build /src/dist /srv/jellyfin-web
 COPY --from=build /src/LICENSE /usr/share/licenses/jellyfin-web/LICENSE
+COPY --from=build /src/node_modules/@jellyfin/libass-wasm/dist/js/COPYRIGHT /usr/share/licenses/subtitle-renderer/COPYRIGHT
 COPY THIRD_PARTY_NOTICES.md /usr/share/licenses/jellyfin-community/THIRD_PARTY_NOTICES.md
 COPY deploy/Caddyfile /etc/caddy/Caddyfile

@@ -28,7 +28,7 @@ jobs:
         run: |
           npm ci
           npm run build:check
-          npm test -- src/scripts/community/online.test.ts src/scripts/community/holdAdvance.test.ts src/scripts/community/emojiPicker.test.ts
+          npm test
           npm run build:production
       - name: Validate local deployment configuration
         run: docker compose config --quiet
@@ -61,6 +61,9 @@ jobs:
           npm ci --omit=dev --prefix backend
           tar -czf release/backend-dependency-source.tar.gz -C backend node_modules package.json package-lock.json LICENSE
           git archive --format=tar.gz HEAD > release/jellyfin-community-source.tar.gz
+      - name: Archive LGPL subtitle renderer and pinned native libraries
+        run: |
+          sh scripts/archive-subtitle-source.sh
           sha256sum release/*.tar.gz > release/SHA256SUMS
       - name: Publish matching source before distributing images
         env:
@@ -68,7 +71,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes --prerelease
-          gh release upload "$RELEASE_TAG" release/*.tar.gz release/SHA256SUMS
+          gh release upload "$RELEASE_TAG" release/*.tar.gz release/SHA256SUMS release/SUBTITLE-SOURCE-REVISIONS.txt
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
