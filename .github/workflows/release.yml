@@ -30,6 +30,8 @@ jobs:
           npm run build:check
           npm test
           npm run build:production
+      - name: Validate hash navigation advisory mitigation
+        run: node scripts/check-navigation.mjs
       - name: Validate local deployment configuration
         run: docker compose config --quiet
   publish:

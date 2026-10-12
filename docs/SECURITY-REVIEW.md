@@ -22,9 +22,12 @@ The production-dependency audit still reports five package findings:
   assets, not `node_modules`. Build-tool updates remain tracked separately.
 - `react-router` and `react-router-dom`: 6.30.6 resolves the earlier directly
   fixable version findings but further advisories recommend a v7 upgrade.
-  SSR hydration is not used by this static gateway. The open-redirect advisory
-  remains a reviewed follow-up; do not claim every untrusted navigation path is
-  audited. Test a compatible fix before production promotion.
+  SSR hydration is not used by this static gateway. Jellyfin uses a hash router,
+  and `scripts/check-navigation.mjs` verifies that five malformed relative
+  targets stay on the app origin for both rendered links and programmatic
+  navigation. CI guards that routing mode. This tests the identified pattern;
+  it does not certify arbitrary external links or erase the audit finding.
+  Reassess both advisories before adopting a browser router, SSR or v7.
 
 Development-tool advisories also remain. Never expose a dev server, test runner,
 build workspace, Docker socket or source dependency tree as a production app.
@@ -32,4 +35,5 @@ Static serving does not by itself prove that every browser dependency is safe.
 
 Release images may be published as an explicitly marked preview for isolated
 NAS validation. Public-domain cutover and production promotion require the
-remaining navigation review and the live deployment/playback/backup checks.
+live deployment/playback/backup checks. Keep the reviewed dependency follow-ups
+tracked when preparing the next upstream upgrade.

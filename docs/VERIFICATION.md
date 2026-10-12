@@ -8,6 +8,8 @@ still passes its five tests. The initial public repository build also passed
 independently on GitHub. See SECURITY-REVIEW.md for remaining advisories and
 promotion gates. The LGPL subtitle renderer's npm gitHead was checked against
 its exact Git source, and all pinned native submodules were fetched successfully.
+Five malformed relative navigation targets were also checked against the exact
+hash router and remain on the application origin for links and navigation.
 
 Publication preparation: initialized an isolated deployment repository, verified
 that the saved patch reproduces the exact customized source tree from its pinned
