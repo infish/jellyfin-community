@@ -21,6 +21,13 @@ WAL writers run is insufficient. Preserve messages and privacy preferences;
 do not publish that database or personal configuration. Restore the backup into
 the dataset as `community.sqlite`, with appropriate ownership.
 
+Verify a standalone backup copy with SQLite's `mode=ro&immutable=1` URI before
+deployment so the verification account does not create WAL/SHM files. Do not
+use immutable mode against a live database whose uncheckpointed WAL is needed.
+If verification created `community.sqlite-wal` or `community.sqlite-shm`, ensure
+those files also belong to UID/GID 1000 with mode 0600 before starting the
+backend. Do not delete a live WAL to repair ownership.
+
 ## Installation and validation
 
 In Apps > Discover Apps > Install via YAML, paste `deploy/truenas.compose.yml`.

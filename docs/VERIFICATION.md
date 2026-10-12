@@ -2,6 +2,21 @@
 
 ## Community follow-up, 2026-10-12
 
+TrueNAS preview: installed the public v0.1.0-alpha.1 images as an isolated Custom
+App on port 30096, with the database on the Apps pool and no media mounts. The
+existing Jellyfin server reports 12.1.0; the customized Web remains 12.0. Quick
+Connect sign-in succeeded through the NAS gateway. Migrated messages rendered,
+12 avatar images loaded with `object-fit: contain`, and the emoji choices were
+visible. Invisibility removed the published row immediately, persisted after a
+reload, and was restored to the operator's original visible preference.
+
+Fixed a startup loop caused by WAL/SHM files created under the verification
+account: those two files were reassigned to the backend's UID/GID 1000. Both
+containers subsequently remained running and repeated health checks returned
+200. Anonymous message access returned 401. The public-domain route, ordinary
+user login, real playback/seek/subtitles, and backend-outage checks remain
+pending; do not treat this preview as completion of those gates.
+
 Release preparation follow-up: targeted Web security dependency updates passed
 all 169 upstream/custom tests, typecheck and a production build. The backend
 still passes its five tests. The initial public repository build also passed

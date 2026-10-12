@@ -4,7 +4,7 @@ A Jellyfin Web customization for a private household, with support for the class
 
 Source and releases: https://github.com/infish/jellyfin-community
 
-Deployment preparation is in progress. The current interface has been tested locally; deployment on TrueNAS, playback through that gateway, and backup restoration have not yet been verified. Published releases must include the corresponding source assets described in [licensing notices](THIRD_PARTY_NOTICES.md).
+The first [preview release](https://github.com/infish/jellyfin-community/releases/tag/v0.1.0-alpha.1) is published with public container images and matching source archives. A TrueNAS preview has been deployed and its restored board, avatars, privacy controls and Quick Connect login verified. Real playback and public-domain cutover remain pending; see [verification](docs/VERIFICATION.md) and [security review](docs/SECURITY-REVIEW.md). Published releases include the source assets described in [licensing notices](THIRD_PARTY_NOTICES.md).
 
 The browser still talks directly to Jellyfin for login, libraries, playback, byte ranges, and WebSockets. Caddy serves the custom `/web/` assets, sends only `/api/community/*` to the community service, and proxies all other traffic to Jellyfin. Native clients and clients with bundled web assets do not gain these features.
 
