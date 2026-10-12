@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+**/node_modules/
+upstream/
+release/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+backups/
+*.log
+seerr-data/
+community-data/

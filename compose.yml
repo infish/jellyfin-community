@@ -1,0 +1,60 @@
+name: jellyfin-household
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    environment:
+      JELLYFIN_UPSTREAM: "${JELLYFIN_URL:-http://jellyfin:8096}"
+
+  community:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_PATH: /data/community.sqlite
+      JELLYFIN_URL: "${JELLYFIN_URL:-http://jellyfin:8096}"
+      SEERR_URL: "${SEERR_URL:-http://seerr:5055}"
+      PUBLIC_SEERR_URL: "${PUBLIC_SEERR_URL:-}"
+      SEERR_API_KEY: "${SEERR_API_KEY:-}"
+      PRESENCE_ENABLED: "${PRESENCE_ENABLED:-true}"
+      BOARD_ENABLED: "${BOARD_ENABLED:-true}"
+      REQUESTS_ENABLED: "${REQUESTS_ENABLED:-false}"
+      LIVE_COMPAT_VERIFIED: "${LIVE_COMPAT_VERIFIED:-false}"
+      MOCK_UPSTREAMS: "${MOCK_UPSTREAMS:-false}"
+    volumes:
+      - community-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3096/api/community/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.4.1@sha256:f4768de5f616248d723e05891f3345a1402123775d03bf0890dbfedc0831bda1
+    restart: unless-stopped
+    profiles: ["bundled-seerr"]
+    environment:
+      LOG_LEVEL: info
+      TZ: "${TZ:-Europe/Prague}"
+    ports:
+      - "127.0.0.1:${SEERR_PORT:-5055}:5055"
+    volumes:
+      - seerr-data:/app/config
+
+  jellyfin:
+    image: ghcr.io/jellyfin/jellyfin:12.0@sha256:74f4d87d9cf262c52d62be6be265c0355c6a7e21d0477ab6c654a49a4f8b1fd4
+    restart: unless-stopped
+    profiles: ["test-jellyfin"]
+    volumes:
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - "${MEDIA_PATH:-/dev/null}:/media:ro"
+
+volumes:
+  community-data:
+  seerr-data:
+  jellyfin-config:
+  jellyfin-cache:

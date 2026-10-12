@@ -1,0 +1,20 @@
+{$LISTEN_ADDRESS::8080} {
+	encode zstd gzip
+
+	redir / /web/ 302
+
+	handle /api/community/* {
+		reverse_proxy community:3096
+	}
+
+	handle_path /web/* {
+		root * /srv/jellyfin-web
+		header Cache-Control "no-cache"
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle {
+		reverse_proxy {$JELLYFIN_UPSTREAM:http://jellyfin:8096}
+	}
+}

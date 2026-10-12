@@ -1,0 +1,1303 @@
+From f4cde0151ae2d442221386c2de3ce66673b70ed2 Mon Sep 17 00:00:00 2001
+From: Jellyfin Household Maintainer <maintainer@localhost>
+Date: Mon, 14 Sep 2026 16:12:25 +0200
+Subject: [PATCH] Add household community interface
+
+---
+ src/apps/legacy/controllers/community.html    |  19 ++
+ src/apps/legacy/controllers/community.js      |  85 +++++++++
+ src/apps/legacy/controllers/hometab.js        |  11 ++
+ src/apps/legacy/controllers/requestmedia.html |   9 +
+ src/apps/legacy/controllers/requestmedia.js   |  88 ++++++++++
+ src/apps/legacy/routes/legacyRoutes/user.ts   |  12 ++
+ .../components/drawers/MainDrawerContent.tsx  |  18 ++
+ src/apps/modern/routes/legacyRoutes/user.ts   |  12 ++
+ src/scripts/community/api.js                  |  58 ++++++
+ src/scripts/community/community.scss          |  82 +++++++++
+ src/scripts/community/emojiPicker.js          |  80 +++++++++
+ src/scripts/community/emojiPicker.test.ts     |  29 +++
+ src/scripts/community/holdAdvance.js          |  28 +++
+ src/scripts/community/holdAdvance.test.ts     |  29 +++
+ src/scripts/community/online.js               | 134 ++++++++++++++
+ src/scripts/community/online.test.ts          |  71 ++++++++
+ src/scripts/community/presence.js             | 103 +++++++++++
+ src/scripts/community/preview.js              | 166 ++++++++++++++++++
+ src/scripts/libraryMenu.js                    |   9 +
+ 19 files changed, 1043 insertions(+)
+ create mode 100644 src/apps/legacy/controllers/community.html
+ create mode 100644 src/apps/legacy/controllers/community.js
+ create mode 100644 src/apps/legacy/controllers/requestmedia.html
+ create mode 100644 src/apps/legacy/controllers/requestmedia.js
+ create mode 100644 src/scripts/community/api.js
+ create mode 100644 src/scripts/community/community.scss
+ create mode 100644 src/scripts/community/emojiPicker.js
+ create mode 100644 src/scripts/community/emojiPicker.test.ts
+ create mode 100644 src/scripts/community/holdAdvance.js
+ create mode 100644 src/scripts/community/holdAdvance.test.ts
+ create mode 100644 src/scripts/community/online.js
+ create mode 100644 src/scripts/community/online.test.ts
+ create mode 100644 src/scripts/community/presence.js
+ create mode 100644 src/scripts/community/preview.js
+
+diff --git a/src/apps/legacy/controllers/community.html b/src/apps/legacy/controllers/community.html
+new file mode 100644
+index 0000000..7a0ea69
+--- /dev/null
++++ b/src/apps/legacy/controllers/community.html
+@@ -0,0 +1,19 @@
++<div id="communityPage" data-role="page" class="page libraryPage communityPage" data-title="Community">
++    <h1>Community</h1>
++    <p class="communityMuted">A shared plain-text board for this household.</p>
++    <div class="communityBoardLayout">
++    <div class="communityBoardMain">
++    <label><input class="presencePreference" type="checkbox"> Show me as online in this web client</label>
++    <form class="communityComposer">
++        <label for="communityMessageBody">New message</label>
++        <textarea id="communityMessageBody" required></textarea>
++        <div class="communityComposerFooter"><div class="communityComposerTools"><button type="button" class="communityEmojiToggle" aria-label="Choose emoji" aria-expanded="false" aria-controls="communityEmojiPicker"><span aria-hidden="true">🙂</span> Emoji</button><span class="communityCharacterCount">0 / 500</span></div><button is="emby-button" type="submit" class="raised button-submit emby-button">Post</button></div>
++        <div id="communityEmojiPicker" class="communityEmojiPicker" role="group" aria-label="Choose an emoji" hidden></div>
++    </form>
++    <p class="communityError" role="status"></p>
++    <ul class="communityMessages"></ul>
++    <button is="emby-button" type="button" class="communityLoadMore raised emby-button hide">Load older messages</button>
++    </div>
++    <aside class="communityOnlinePanel" aria-label="People online"></aside>
++    </div>
++</div>
+diff --git a/src/apps/legacy/controllers/community.js b/src/apps/legacy/controllers/community.js
+new file mode 100644
+index 0000000..e285c0c
+--- /dev/null
++++ b/src/apps/legacy/controllers/community.js
+@@ -0,0 +1,85 @@
++import { communityFetch, messageAvatar } from 'scripts/community/api';
++import { OnlinePanel } from 'scripts/community/online';
++import { EmojiPicker } from 'scripts/community/emojiPicker';
++import 'scripts/community/community.scss';
++
++/* eslint-disable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals */
++
++export default class CommunityPage {
++    constructor(view) {
++        this.view = view;
++        this.cursor = null;
++        this.me = null;
++        this.emojiPicker = new EmojiPicker(view, message => this.setError(message));
++        view.addEventListener('viewhide', () => this.emojiPicker.close());
++        this.online = new OnlinePanel(view.querySelector('.communityOnlinePanel'));
++        view.addEventListener('viewhide', () => this.online.pause());
++        view.addEventListener('viewshow', () => {
++            this.syncPreference = event => { view.querySelector('.presencePreference').checked = event.detail.visible; };
++            document.addEventListener('communitypresencechange', this.syncPreference);
++        });
++        view.addEventListener('viewhide', () => document.removeEventListener('communitypresencechange', this.syncPreference));
++        this.show = () => void this.onResume();
++        view.addEventListener('viewshow', this.show);
++        this.submit = event => { event.preventDefault(); void this.post(); };
++        this.input = event => {
++            const length = [...event.target.value].length;
++            view.querySelector('.communityCharacterCount').textContent = `${length} / 500`;
++            event.target.setCustomValidity(length > 500 ? 'Your message is limited to 500 characters.' : '');
++        };
++        view.querySelector('.communityComposer').addEventListener('submit', this.submit);
++        view.querySelector('textarea').addEventListener('input', this.input);
++        view.querySelector('.communityLoadMore').addEventListener('click', () => void this.load(false));
++        view.querySelector('.presencePreference').addEventListener('change', event => void this.setPresence(event.target.checked));
++    }
++    setError(message = '') { this.view.querySelector('.communityError').textContent = message; }
++    async onResume() {
++        this.online.resume();
++        try {
++            this.me = await communityFetch('/me');
++            this.view.querySelector('.presencePreference').checked = this.me.presenceVisible;
++            await this.load(true);
++        } catch (error) { this.setError(error.message); }
++    }
++    async setPresence(visible) {
++        try { await communityFetch('/presence/preference', { method: 'PUT', body: JSON.stringify({ visible }) }); document.dispatchEvent(new CustomEvent('communitypresencechange', { detail: { visible } })); this.online.resume(); } catch (error) { this.setError(error.message); this.view.querySelector('.presencePreference').checked = !visible; }
++    }
++    renderMessage(message) {
++        const li = document.createElement('li');
++        li.className = 'communityMessage';
++        const header = document.createElement('div');
++        header.className = 'communityMessageHeader';
++        const author = document.createElement('strong'); author.textContent = message.displayName;
++        const time = document.createElement('time'); time.dateTime = new Date(message.createdAt).toISOString(); time.textContent = new Date(message.createdAt).toLocaleString();
++        const body = document.createElement('p'); body.className = 'communityMessageBody'; body.textContent = message.body;
++        header.append(messageAvatar(message), author, time);
++        if (message.authorId === this.me?.id || this.me?.isAdmin) {
++            const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'communityMessageDelete'; remove.textContent = 'Delete';
++            remove.addEventListener('click', async () => { try { await communityFetch(`/messages/${message.id}`, { method: 'DELETE' }); li.remove(); } catch (error) { this.setError(error.message); } });
++            header.append(remove);
++        }
++        li.append(header, body);
++        return li;
++    }
++    async load(reset) {
++        try {
++            const data = await communityFetch(`/messages${!reset && this.cursor ? `?cursor=${encodeURIComponent(this.cursor)}` : ''}`);
++            const list = this.view.querySelector('.communityMessages');
++            if (reset) list.innerHTML = '';
++            list.append(...data.items.map(item => this.renderMessage(item)));
++            this.cursor = data.nextCursor;
++            this.view.querySelector('.communityLoadMore').classList.toggle('hide', !this.cursor);
++            this.setError(data.items.length || list.children.length ? '' : 'No messages yet.');
++        } catch (error) { this.setError(error.message); }
++    }
++    async post() {
++        const input = this.view.querySelector('textarea');
++        try {
++            await communityFetch('/messages', { method: 'POST', body: JSON.stringify({ body: input.value }) });
++            input.value = ''; input.dispatchEvent(new Event('input')); await this.load(true);
++        } catch (error) { this.setError(error.message); }
++    }
++    destroy() { this.emojiPicker.destroy(); this.online.pause(); this.view.querySelector('.communityComposer')?.removeEventListener('submit', this.submit); this.view.querySelector('textarea')?.removeEventListener('input', this.input); this.view = null; }
++}
++
++/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals */
+diff --git a/src/apps/legacy/controllers/hometab.js b/src/apps/legacy/controllers/hometab.js
+index 4f73a82..3d086a6 100644
+--- a/src/apps/legacy/controllers/hometab.js
++++ b/src/apps/legacy/controllers/hometab.js
+@@ -2,6 +2,7 @@ import * as userSettings from 'scripts/settings/userSettings';
+ import focusManager from 'components/focusManager';
+ import homeSections from 'components/homesections/homesections';
+ import { ServerConnections } from 'lib/jellyfin-apiclient';
++import { CommunityPreview } from 'scripts/community/preview';
+ 
+ import 'elements/emby-itemscontainer/emby-itemscontainer';
+ 
+@@ -11,6 +12,10 @@ class HomeTab {
+         this.params = params;
+         this.apiClient = ServerConnections.currentApiClient();
+         this.sectionsContainer = view.querySelector('.sections');
++        this.communityContainer = document.createElement('section');
++        this.communityContainer.className = 'verticalSection communityPreview';
++        this.sectionsContainer.before(this.communityContainer);
++        this.communityPreview = new CommunityPreview(this.communityContainer);
+         view.querySelector('.sections').addEventListener('settingschange', onHomeScreenSettingsChanged.bind(this));
+     }
+     onResume(options) {
+@@ -18,6 +23,7 @@ class HomeTab {
+             const sectionsContainer = this.sectionsContainer;
+ 
+             if (sectionsContainer) {
++                this.communityPreview.resume();
+                 return homeSections.resume(sectionsContainer, options);
+             }
+ 
+@@ -31,6 +37,7 @@ class HomeTab {
+         return apiClient.getCurrentUser()
+             .then(user => homeSections.loadSections(view.querySelector('.sections'), apiClient, user, userSettings))
+             .then(() => {
++                this.communityPreview.resume();
+                 if (options.autoFocus) {
+                     focusManager.autoFocus(view);
+                 }
+@@ -44,12 +51,16 @@ class HomeTab {
+         if (sectionsContainer) {
+             homeSections.pause(sectionsContainer);
+         }
++        this.communityPreview.pause();
+     }
+     destroy() {
+         this.view = null;
+         this.params = null;
+         this.apiClient = null;
+         this.destroyHomeSections();
++        this.communityPreview.destroy();
++        this.communityPreview = null;
++        this.communityContainer = null;
+         this.sectionsContainer = null;
+     }
+     destroyHomeSections() {
+diff --git a/src/apps/legacy/controllers/requestmedia.html b/src/apps/legacy/controllers/requestmedia.html
+new file mode 100644
+index 0000000..45cc074
+--- /dev/null
++++ b/src/apps/legacy/controllers/requestmedia.html
+@@ -0,0 +1,9 @@
++<div id="requestMediaPage" data-role="page" class="page libraryPage communityPage" data-title="Request media">
++    <h1>Request media</h1>
++    <p class="communityMuted">Search the external catalog, select the exact title, and confirm your request.</p>
++    <form class="requestSearchBar"><label class="visually-hidden" for="requestQuery">Title</label><input id="requestQuery" type="search" minlength="2" maxlength="100" autocomplete="off" placeholder="Movie or series title"><button is="emby-button" type="submit" class="raised button-submit emby-button">Search</button></form>
++    <p class="communityError" role="status"></p>
++    <div class="requestResults"></div>
++    <section class="requestSelection hide" aria-live="polite"><h2></h2><p></p><div class="requestSeasons"></div><button is="emby-button" type="button" class="requestConfirm raised button-submit emby-button">Confirm request</button></section>
++    <section><h2>My requests</h2><div class="myRequests"></div></section>
++</div>
+diff --git a/src/apps/legacy/controllers/requestmedia.js b/src/apps/legacy/controllers/requestmedia.js
+new file mode 100644
+index 0000000..a7cb709
+--- /dev/null
++++ b/src/apps/legacy/controllers/requestmedia.js
+@@ -0,0 +1,88 @@
++import { communityFetch, createId } from 'scripts/community/api';
++import 'scripts/community/community.scss';
++
++/* eslint-disable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals, sonarjs/no-unenclosed-multiline-block */
++
++export default class RequestMediaPage {
++    constructor(view) {
++        this.view = view;
++        this.selected = null;
++        this.show = () => void this.onResume();
++        view.addEventListener('viewshow', this.show);
++        this.searchTimer = null;
++        this.searchController = null;
++        this.searchHandler = event => { event.preventDefault(); void this.search(); };
++        this.typedSearch = () => {
++            clearTimeout(this.searchTimer);
++            if (view.querySelector('#requestQuery').value.trim().length >= 2) this.searchTimer = setTimeout(() => void this.search(), 300);
++        };
++        view.querySelector('.requestSearchBar').addEventListener('submit', this.searchHandler);
++        view.querySelector('#requestQuery').addEventListener('input', this.typedSearch);
++        view.querySelector('.requestConfirm').addEventListener('click', () => void this.submit());
++    }
++    error(message = '') { this.view.querySelector('.communityError').textContent = message; }
++    async onResume() { try { await this.loadMine(); } catch (error) { this.error(error.message); } }
++    async search() {
++        const q = this.view.querySelector('#requestQuery').value.trim();
++        if (q.length < 2) return;
++        this.searchController?.abort();
++        // The app entrypoint installs the project's AbortController polyfill for legacy targets.
++        // eslint-disable-next-line compat/compat
++        this.searchController = new AbortController();
++        this.error('Searching…');
++        try {
++            const data = await communityFetch(`/requests/search?q=${encodeURIComponent(q)}`, { signal: this.searchController.signal });
++            const results = this.view.querySelector('.requestResults');
++            results.innerHTML = '';
++            results.append(...data.items.map(item => {
++                const button = document.createElement('button'); button.type = 'button'; button.className = 'requestCard';
++                if (item.posterUrl) {
++                    const poster = document.createElement('img');
++                    poster.src = item.posterUrl;
++                    poster.alt = '';
++                    poster.loading = 'lazy';
++                    button.append(poster);
++                }
++                const title = document.createElement('strong'); title.textContent = item.title;
++                const meta = document.createElement('div'); meta.textContent = `${item.mediaType === 'tv' ? 'Series' : 'Movie'}${item.year ? ` · ${item.year}` : ''}`;
++                button.append(title, meta); button.addEventListener('click', () => void this.select(item)); return button;
++            }));
++            this.error(data.items.length ? '' : 'No matching movies or series.');
++        } catch (error) { if (error.name !== 'AbortError') this.error(error.message); }
++    }
++    async select(item) {
++        try {
++            this.selected = await communityFetch(`/requests/details/${item.mediaType}/${item.id}`);
++            const section = this.view.querySelector('.requestSelection'); section.classList.remove('hide');
++            section.querySelector('h2').textContent = this.selected.title;
++            section.querySelector('p').textContent = `${this.selected.mediaType === 'tv' ? 'Series' : 'Movie'}${this.selected.year ? ` · ${this.selected.year}` : ''}`;
++            const seasons = section.querySelector('.requestSeasons'); seasons.innerHTML = '';
++            if (this.selected.mediaType === 'tv') {
++                this.selected.seasons.forEach(season => {
++                    const label = document.createElement('label'); const box = document.createElement('input'); box.type = 'checkbox'; box.value = season.seasonNumber;
++                    label.append(box, document.createTextNode(` ${season.name || `Season ${season.seasonNumber}`}`)); seasons.append(label);
++                });
++            }
++            section.querySelector('.requestConfirm').focus();
++        } catch (error) { this.error(error.message); }
++    }
++    async submit() {
++        if (!this.selected) return;
++        const seasons = [...this.view.querySelectorAll('.requestSeasons input:checked')].map(x => Number(x.value));
++        try {
++            const data = await communityFetch('/requests', { method: 'POST', body: JSON.stringify({ mediaType: this.selected.mediaType, mediaId: this.selected.id, seasons, idempotencyKey: createId() }) });
++            this.error(data.state); await this.loadMine();
++        } catch (error) { this.error(error.message); }
++    }
++    async loadMine() {
++        const data = await communityFetch('/requests/mine');
++        const target = this.view.querySelector('.myRequests');
++        target.innerHTML = '';
++        target.append(...data.items.map(item => { const row = document.createElement('p'); row.textContent = `${item.title || `${item.type} request`} — ${this.status(item.status, item.mediaStatus)}`; return row; }));
++        if (!data.items.length) target.textContent = 'No requests yet.';
++    }
++    status(request, media) { if (request === 1) return 'Awaiting approval'; if (request === 3) return 'Declined'; if (request === 4) return 'Request failed'; if (media === 5) return 'Available status reported by Seerr; Jellyfin visibility check pending'; return 'Approved; awaiting availability'; }
++    destroy() { clearTimeout(this.searchTimer); this.searchController?.abort(); this.view.querySelector('.requestSearchBar')?.removeEventListener('submit', this.searchHandler); this.view.querySelector('#requestQuery')?.removeEventListener('input', this.typedSearch); this.view = null; }
++}
++
++/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals, sonarjs/no-unenclosed-multiline-block */
+diff --git a/src/apps/legacy/routes/legacyRoutes/user.ts b/src/apps/legacy/routes/legacyRoutes/user.ts
+index 612572a..d2e6c82 100644
+--- a/src/apps/legacy/routes/legacyRoutes/user.ts
++++ b/src/apps/legacy/routes/legacyRoutes/user.ts
+@@ -86,6 +86,18 @@ export const LEGACY_USER_ROUTES: LegacyRoute[] = [
+             isNowPlayingBarEnabled: false,
+             isThemeMediaSupported: true
+         }
++    }, {
++        path: 'community',
++        pageProps: {
++            controller: 'community',
++            view: 'community.html'
++        }
++    }, {
++        path: 'request-media',
++        pageProps: {
++            controller: 'requestmedia',
++            view: 'requestmedia.html'
++        }
+     }, {
+         path: 'home',
+         pageProps: {
+diff --git a/src/apps/modern/components/drawers/MainDrawerContent.tsx b/src/apps/modern/components/drawers/MainDrawerContent.tsx
+index 3c4f1a0..79b8571 100644
+--- a/src/apps/modern/components/drawers/MainDrawerContent.tsx
++++ b/src/apps/modern/components/drawers/MainDrawerContent.tsx
+@@ -1,5 +1,7 @@
+ import Favorite from '@mui/icons-material/Favorite';
+ import Home from '@mui/icons-material/Home';
++import Forum from '@mui/icons-material/Forum';
++import AddToQueue from '@mui/icons-material/AddToQueue';
+ import Divider from '@mui/material/Divider';
+ import Icon from '@mui/material/Icon';
+ import List from '@mui/material/List';
+@@ -53,6 +55,22 @@ const MainDrawerContent = () => {
+                         <ListItemText primary={globalize.translate('Favorites')} />
+                     </ListItemLink>
+                 </ListItem>
++                <ListItem disablePadding>
++                    <ListItemLink to='/community' selected={location.pathname === '/community'}>
++                        <ListItemIcon>
++                            <Forum />
++                        </ListItemIcon>
++                        <ListItemText primary='Community' />
++                    </ListItemLink>
++                </ListItem>
++                <ListItem disablePadding>
++                    <ListItemLink to='/request-media' selected={location.pathname === '/request-media'}>
++                        <ListItemIcon>
++                            <AddToQueue />
++                        </ListItemIcon>
++                        <ListItemText primary='Request media' />
++                    </ListItemLink>
++                </ListItem>
+             </List>
+ 
+             {/* CUSTOM LINKS */}
+diff --git a/src/apps/modern/routes/legacyRoutes/user.ts b/src/apps/modern/routes/legacyRoutes/user.ts
+index 2dd81a4..de1f6a6 100644
+--- a/src/apps/modern/routes/legacyRoutes/user.ts
++++ b/src/apps/modern/routes/legacyRoutes/user.ts
+@@ -43,6 +43,18 @@ export const LEGACY_USER_ROUTES: LegacyRoute[] = [
+             controller: 'user/subtitles/index',
+             view: 'user/subtitles/index.html'
+         }
++    }, {
++        path: 'community',
++        pageProps: {
++            controller: 'community',
++            view: 'community.html'
++        }
++    }, {
++        path: 'request-media',
++        pageProps: {
++            controller: 'requestmedia',
++            view: 'requestmedia.html'
++        }
+     }, {
+         path: 'queue',
+         pageProps: {
+diff --git a/src/scripts/community/api.js b/src/scripts/community/api.js
+new file mode 100644
+index 0000000..060573d
+--- /dev/null
++++ b/src/scripts/community/api.js
+@@ -0,0 +1,58 @@
++import { ServerConnections } from 'lib/jellyfin-apiclient';
++
++/* eslint-disable sonarjs/pseudo-random */
++
++const ROOT = '/api/community';
++
++function token() {
++    const value = ServerConnections.currentApiClient()?.accessToken();
++    if (!value) throw new Error('Sign in to use community features');
++    return value;
++}
++
++export async function communityFetch(path, options = {}) {
++    const headers = {
++        ...(options.headers || {}),
++        Authorization: `Bearer ${token()}`
++    };
++    if (options.body) headers['Content-Type'] = 'application/json';
++    const response = await fetch(`${ROOT}${path}`, { ...options, headers, credentials: 'same-origin' });
++    const data = await response.json().catch(() => ({}));
++    if (!response.ok) throw new Error(data.error || `Community service returned ${response.status}`);
++    return data;
++}
++
++export function createId() {
++    if (crypto.randomUUID) return crypto.randomUUID();
++    return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
++}
++
++export function messageAvatar(message) {
++    return profileAvatar(message.displayName, `/messages/${encodeURIComponent(message.id)}/avatar`);
++}
++
++export function profileAvatar(name, path) {
++    const avatar = document.createElement('span');
++    avatar.className = 'communityAvatar communityInitials';
++    avatar.setAttribute('aria-hidden', 'true');
++    avatar.textContent = name.trim().slice(0, 1).toUpperCase() || '?';
++    fetch(`${ROOT}${path}`, {
++        headers: { Authorization: `Bearer ${token()}` }, credentials: 'same-origin'
++    }).then(response => {
++        if (!response.ok) throw new Error('No profile picture');
++        return response.blob();
++    }).then(blob => {
++        if (!avatar.isConnected) return;
++        const url = URL.createObjectURL(blob);
++        const image = document.createElement('img');
++        image.alt = '';
++        image.onload = () => URL.revokeObjectURL(url);
++        image.onerror = () => URL.revokeObjectURL(url);
++        image.src = url;
++        avatar.textContent = '';
++        avatar.appendChild(image);
++    }).catch(() => { /* Keep initials when the author has no accessible image. */ });
++    return avatar;
++}
++
++/* eslint-enable sonarjs/pseudo-random */
+diff --git a/src/scripts/community/community.scss b/src/scripts/community/community.scss
+new file mode 100644
+index 0000000..05ee10f
+--- /dev/null
++++ b/src/scripts/community/community.scss
+@@ -0,0 +1,82 @@
++.communityPresenceButton { width: auto !important; min-width: 3.2em; gap: .2em; padding-inline: .65em !important; }
++.communityPresenceButton.communityUnavailable { opacity: .55; }
++.communityPresenceLabel { font-size: .86em; }
++.communityPresenceDialog { color: inherit; background: rgba(30,30,30,.98); border: 0; border-radius: .5em; min-width: min(22em, calc(100vw - 2em)); box-shadow: 0 12px 40px #0009; }
++.communityPresenceDialog::backdrop { background: #0008; }
++.communityPresenceDialog h2 { margin-top: 0; padding-right: 2em; }
++.communityDialogClose { position: absolute; right: .6em; top: .4em; border: 0; color: inherit; background: transparent; font-size: 2em; cursor: pointer; }
++.communityPresenceList { list-style: none; padding: 0; margin: 1em 0; max-height: 50vh; overflow: auto; }
++.communityPresenceList li { display: flex; align-items: center; gap: .75em; padding: .5em 0; }
++.communityInitials { display: inline-grid; place-items: center; width: 2.25em; height: 2.25em; border-radius: 50%; background: #00a4dc; color: #fff; font-weight: 700; }
++.communityPage { padding: 5.5em max(3%, env(safe-area-inset-left)) 8em; max-width: 70em; margin: auto; }
++.communityPage h1 { margin-bottom: .25em; }
++.communityMuted { opacity: .72; }
++.communityError { color: #ffb4ab; min-height: 1.4em; }
++.communityComposer textarea { box-sizing: border-box; width: 100%; min-height: 6em; resize: vertical; padding: .8em; color: inherit; background: #0003; border: 1px solid #ffffff38; border-radius: .35em; }
++.communityComposerFooter { display: flex; align-items: center; justify-content: space-between; gap: 1em; margin-top: .5em; }
++.communityComposerFooter > button[type="submit"] { min-width: 7em; }
++.communityComposerTools { display: flex; align-items: center; gap: .85em; }
++.communityCharacterCount { white-space: nowrap; font-size: .85em; opacity: .75; }
++.communityEmojiToggle { display: flex; align-items: center; gap: .4em; min-height: 2.8em; padding: .4em .8em; color: inherit; background: #ffffff12; border: 0; border-radius: .35em; cursor: pointer; }
++.communityEmojiToggle > span { font-size: 1.3em; }
++.communityEmojiPicker { margin-top: .8em; padding: .9em; max-width: 27em; background: #ffffff0d; border: 1px solid #ffffff20; border-radius: .45em; }
++.communityEmojiPicker h3 { font-size: .85em; font-weight: 600; opacity: .75; margin: 0 0 .5em; }
++.communityEmojiPicker h3:not(:first-child) { margin-top: 1em; }
++.communityEmojiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(2.8em, 1fr)); gap: .25em; }
++.communityEmojiChoice { display: grid; place-items: center; min-width: 2em; min-height: 2em; font-size: 1.5em; border: 0; border-radius: .3em; background: transparent; cursor: pointer; }
++.communityEmojiChoice:hover { background: #ffffff18; }
++.communityEmojiChoice:focus-visible,.communityEmojiToggle:focus-visible { outline: 2px solid #00a4dc; }
++.communityMessages { list-style: none; padding: 0; }
++.communityMessage { padding: 1em 0; border-bottom: 1px solid #ffffff20; }
++.communityMessageHeader { display: flex; gap: .7em; align-items: center; flex-wrap: wrap; }
++.communityMessageIdentity { display: flex; gap: .7em; align-items: center; }
++.communityAvatar { flex-shrink: 0; overflow: hidden; position: relative; background: #ffffff12; }
++.communityAvatar img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
++.communityMessageHeader time { opacity: .65; font-size: .9em; }
++.communityMessageBody { white-space: pre-wrap; overflow-wrap: anywhere; margin: .55em 0; }
++.communityMessageDelete { margin-left: auto; }
++.communityPreview { margin-top: 2em; padding-bottom: 1.5em; }
++.communityPreviewScroller { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(16em, 22em); gap: 1em; overflow-x: auto; padding-top: .5em; padding-bottom: .8em; scroll-snap-type: x proximity; scrollbar-width: none; }
++.communityPreviewScroller::-webkit-scrollbar { display: none; }
++.communityPreviewMessages .sectionTitleContainer { display: flex; align-items: center; justify-content: space-between; padding-right: 3.3%; }
++.communitySliderControls { display: flex; gap: .3em; }
++.communitySliderArrow { display: grid; place-items: center; width: 2.6em; height: 2.6em; color: inherit; border: 0; border-radius: 50%; background: transparent; cursor: pointer; touch-action: none; }
++.communitySliderArrow:hover { background: #ffffff12; }
++.communitySliderArrow:focus-visible { outline: 2px solid #00a4dc; }
++.communitySliderArrow:disabled { opacity: .3; cursor: default; }
++.communityPreviewCard { box-sizing: border-box; display: flex; flex-direction: column; gap: .55em; min-height: 9em; padding: 1.1em; color: inherit; text-decoration: none; background: #ffffff12; border-radius: .45em; scroll-snap-align: start; box-shadow: 0 2px 8px #0003; }
++.communityPreviewCard:hover,.communityPreviewCard:focus-visible { color: inherit; background: #ffffff20; outline: 2px solid #00a4dc; outline-offset: 2px; }
++.communityPreviewCard > span:not(.material-icons) { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.35; }
++.communityPreviewCard time { margin-top: auto; font-size: .82em; opacity: .65; }
++.communityPreviewEmpty { justify-content: center; align-items: center; text-align: center; }
++.communityPreviewEmpty .material-icons { font-size: 2.2em; color: #00a4dc; }
++.communityBoardLayout,.communityPreviewLayout { display: grid; grid-template-columns: minmax(0, 1fr) 16em; gap: 1.5em; align-items: start; }
++.communityBoardMain,.communityPreviewMessages { min-width: 0; }
++.communityPreviewLayout { padding-right: 3.3%; }
++.communityPreviewLayout > .communityOnlinePanel { margin-top: .4em; }
++.communityOnlinePanel { box-sizing: border-box; padding: 1.1em; border-radius: .45em; background: #ffffff0d; border: 1px solid #ffffff12; }
++.communityOnlineHeading { display: flex; align-items: center; gap: .6em; }
++.communityOnlineHeading h2 { margin: 0; font-size: 1.05em; font-weight: 600; }
++.communityOnlineDot { display: block; width: .5em; height: .5em; border-radius: 50%; background: #62d998; flex-shrink: 0; }
++.communityOnlineCount { margin-left: auto; font-size: .85em; background: #ffffff12; padding: .2em .6em; border-radius: 1em; }
++.communityOnlineDescription { font-size: .8em; opacity: .6; margin: .45em 0 1em; }
++.communityOnlineUsers { list-style: none; padding: 0; margin: 0; max-height: 16em; overflow-y: auto; }
++.communityOnlineUsers li { display: flex; gap: .75em; align-items: center; padding: .4em 0; overflow-wrap: anywhere; }
++.communityOnlinePortrait { position: relative; display: flex; flex-shrink: 0; }
++.communityOnlinePortrait > .communityOnlineDot { position: absolute; right: 0; bottom: 0; border: 2px solid #202020; }
++.communityOnlineStatus { margin: .4em 0 0; font-size: .85em; opacity: .65; }
++.communityOfflineDot { background: #888; }
++.communityPrivacyControl { margin-top: 1em; padding-top: .85em; border-top: 1px solid #ffffff20; }
++.communityPrivacyControl label { display: flex; align-items: center; gap: .5em; font-weight: 600; cursor: pointer; min-height: 2.5em; }
++.communityPrivacyControl label > .material-icons { font-size: 1.25em; opacity: .8; }
++.communityPrivacyControl input { margin-left: auto; width: 1.3em; height: 1.3em; accent-color: #00a4dc; cursor: pointer; }
++.communityPrivacyHint { font-size: .8em; opacity: .75; line-height: 1.4; margin: .25em 0 0; }
++@media (max-width: 850px) { .communityBoardLayout,.communityPreviewLayout { grid-template-columns: minmax(0, 1fr); } .communityOnlinePanel { grid-row: 1; } .communityPreviewLayout { padding-right: 0; } .communityPreviewLayout > .communityOnlinePanel { margin: 0 3.3%; } .communityOnlineUsers { display: flex; flex-wrap: wrap; gap: .4em 1.2em; } }
++.requestSearchBar { display: flex; gap: .5em; max-width: 44em; }
++.requestSearchBar input { flex: 1; min-width: 0; padding: .8em; }
++.requestResults { display: grid; grid-template-columns: repeat(auto-fill,minmax(13em,1fr)); gap: 1em; margin: 1.5em 0; }
++.requestCard { color: inherit; text-align: left; border: 0; border-radius: .45em; background: #ffffff12; padding: 1em; min-height: 7em; cursor: pointer; }
++.requestCard img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: .3em; margin-bottom: .7em; background: #0003; }
++.requestCard:hover,.requestCard:focus-visible { background: #ffffff20; outline: 2px solid #00a4dc; }
++.requestSeasons { display: grid; gap: .5em; margin: 1em 0; }
++@media (max-width: 600px) { .communityPresenceLabel { display: none; } .communityPage { padding-top: 4.5em; } }
+diff --git a/src/scripts/community/emojiPicker.js b/src/scripts/community/emojiPicker.js
+new file mode 100644
+index 0000000..cd0e16c
+--- /dev/null
++++ b/src/scripts/community/emojiPicker.js
+@@ -0,0 +1,80 @@
++const FACES = [
++    ['😀', 'Grinning face'], ['😃', 'Happy face'], ['😄', 'Smiling face'], ['😁', 'Beaming face'],
++    ['😆', 'Laughing face'], ['😅', 'Smiling with sweat'], ['😂', 'Tears of joy'], ['🤣', 'Rolling with laughter'],
++    ['🙂', 'Slight smile'], ['🙃', 'Upside-down face'], ['😉', 'Winking face'], ['😊', 'Blushing smile'],
++    ['😇', 'Smiling with halo'], ['🥰', 'Smiling with hearts'], ['😍', 'Heart eyes'], ['😘', 'Blowing a kiss'],
++    ['😋', 'Savoring food'], ['😛', 'Tongue out'], ['😎', 'Sunglasses'], ['🤔', 'Thinking face'],
++    ['😐', 'Neutral face'], ['🙄', 'Rolling eyes'], ['😢', 'Crying face'], ['😭', 'Loudly crying face'],
++    ['😮', 'Surprised face'], ['😴', 'Sleeping face'], ['😬', 'Grimacing face'], ['😡', 'Angry face']
++];
++
++export function insertEmoji(input, emoji) {
++    const start = input.selectionStart ?? input.value.length;
++    const end = input.selectionEnd ?? start;
++    const value = input.value.slice(0, start) + emoji + input.value.slice(end);
++    if ([...value].length > 500) return false;
++    input.value = value;
++    input.focus();
++    input.setSelectionRange(start + emoji.length, start + emoji.length);
++    input.dispatchEvent(new Event('input', { bubbles: true }));
++    return true;
++}
++
++export class EmojiPicker {
++    constructor(view, onError) {
++        this.input = view.querySelector('textarea');
++        this.toggle = view.querySelector('.communityEmojiToggle');
++        this.panel = view.querySelector('.communityEmojiPicker');
++        this.toggleClick = () => this.setOpen(this.panel.hidden);
++        this.escape = event => {
++            if (event.key === 'Escape') {
++                this.close();
++                this.toggle.focus();
++            }
++        };
++        this.outside = event => {
++            if (!this.panel.contains(event.target) && !this.toggle.contains(event.target)) this.close();
++        };
++        [['Faces', FACES], ['Extras', [['🇮🇱', 'Israel flag'], ['🧃', 'Juice box']]]].forEach(([name, emojis]) => {
++            const heading = document.createElement('h3');
++            heading.textContent = name;
++            const grid = document.createElement('div');
++            grid.className = 'communityEmojiGrid';
++            emojis.forEach(([emoji, label]) => {
++                const button = document.createElement('button');
++                button.type = 'button';
++                button.className = 'communityEmojiChoice';
++                button.textContent = emoji;
++                button.title = label;
++                button.setAttribute('aria-label', label);
++                button.addEventListener('click', () => {
++                    if (!insertEmoji(this.input, emoji)) onError('Your message is limited to 500 characters.');
++                });
++                grid.appendChild(button);
++            });
++            this.panel.append(heading, grid);
++        });
++        this.toggle.addEventListener('click', this.toggleClick);
++    }
++
++    setOpen(open) {
++        this.close();
++        if (!open) return;
++        this.panel.hidden = false;
++        this.toggle.setAttribute('aria-expanded', 'true');
++        document.addEventListener('keydown', this.escape);
++        document.addEventListener('pointerdown', this.outside);
++    }
++
++    close() {
++        this.panel.hidden = true;
++        this.toggle.setAttribute('aria-expanded', 'false');
++        document.removeEventListener('keydown', this.escape);
++        document.removeEventListener('pointerdown', this.outside);
++    }
++
++    destroy() {
++        this.close();
++        this.toggle.removeEventListener('click', this.toggleClick);
++    }
++}
+diff --git a/src/scripts/community/emojiPicker.test.ts b/src/scripts/community/emojiPicker.test.ts
+new file mode 100644
+index 0000000..37d6ba7
+--- /dev/null
++++ b/src/scripts/community/emojiPicker.test.ts
+@@ -0,0 +1,29 @@
++import { expect, test } from 'vitest';
++import { insertEmoji } from './emojiPicker';
++
++test('emoji insertion replaces the selection and restores the cursor', () => {
++    const input = document.createElement('textarea');
++    input.value = 'hello world';
++    input.setSelectionRange(6, 11);
++    expect(insertEmoji(input, '🧃')).toBe(true);
++    expect(input.value).toBe('hello 🧃');
++    expect(input.selectionStart).toBe(8);
++});
++
++test('the limit counts Unicode code points instead of UTF-16 units', () => {
++    const input = document.createElement('textarea');
++    input.value = '😀'.repeat(499);
++    input.setSelectionRange(input.value.length, input.value.length);
++    expect(insertEmoji(input, '🧃')).toBe(true);
++    expect([...input.value]).toHaveLength(500);
++    expect(insertEmoji(input, '😀')).toBe(false);
++    expect([...input.value]).toHaveLength(500);
++});
++
++test('the two-code-point flag cannot push the message past the limit', () => {
++    const input = document.createElement('textarea');
++    input.value = 'a'.repeat(499);
++    input.setSelectionRange(499, 499);
++    expect(insertEmoji(input, '🇮🇱')).toBe(false);
++    expect(input.value).toHaveLength(499);
++});
+diff --git a/src/scripts/community/holdAdvance.js b/src/scripts/community/holdAdvance.js
+new file mode 100644
+index 0000000..14bc3bc
+--- /dev/null
++++ b/src/scripts/community/holdAdvance.js
+@@ -0,0 +1,28 @@
++/** One press advances at most five cards; release cancels all pending movement. */
++export class HoldAdvance {
++    constructor(step) {
++        this.step = step;
++        this.timer = null;
++        this.generation = 0;
++    }
++
++    start() {
++        this.stop();
++        const generation = this.generation;
++        let remaining = 5;
++        const advance = async () => {
++            if (generation !== this.generation || remaining === 0) return;
++            remaining--;
++            const moved = await this.step(() => generation === this.generation);
++            if (generation !== this.generation || !moved || remaining === 0) return;
++            this.timer = setTimeout(advance, 220);
++        };
++        advance();
++    }
++
++    stop() {
++        this.generation++;
++        clearTimeout(this.timer);
++        this.timer = null;
++    }
++}
+diff --git a/src/scripts/community/holdAdvance.test.ts b/src/scripts/community/holdAdvance.test.ts
+new file mode 100644
+index 0000000..454d5b8
+--- /dev/null
++++ b/src/scripts/community/holdAdvance.test.ts
+@@ -0,0 +1,29 @@
++import { afterEach, expect, test, vi } from 'vitest';
++import { HoldAdvance } from './holdAdvance';
++
++afterEach(() => vi.useRealTimers());
++
++test('a held arrow stops after exactly five advances', async () => {
++    vi.useFakeTimers();
++    const step = vi.fn(async () => true);
++    const hold = new HoldAdvance(step);
++    hold.start();
++    await vi.runAllTimersAsync();
++    expect(step).toHaveBeenCalledTimes(5);
++    await vi.advanceTimersByTimeAsync(10_000);
++    expect(step).toHaveBeenCalledTimes(5);
++});
++
++test('releasing during an in-flight step cannot schedule more movement', async () => {
++    vi.useFakeTimers();
++    let finish: ((value: boolean) => void) | undefined;
++    const step = vi.fn(() => new Promise<boolean>(resolve => {
++        finish = resolve;
++    }));
++    const hold = new HoldAdvance(step);
++    hold.start();
++    hold.stop();
++    finish?.(true);
++    await vi.runAllTimersAsync();
++    expect(step).toHaveBeenCalledTimes(1);
++});
+diff --git a/src/scripts/community/online.js b/src/scripts/community/online.js
+new file mode 100644
+index 0000000..1da9b76
+--- /dev/null
++++ b/src/scripts/community/online.js
+@@ -0,0 +1,134 @@
++import { communityFetch, profileAvatar } from './api';
++import { heartbeat } from './presence';
++
++export class OnlinePanel {
++    constructor(container) {
++        this.container = container;
++        this.timer = null;
++        this.active = false;
++        this.usersKey = null;
++        this.loading = false;
++        this.changing = false;
++        this.revision = 0;
++        this.me = null;
++        this.users = [];
++        this.refreshPending = false;
++        container.classList.add('communityOnlinePanel');
++        container.innerHTML = '<div class="communityOnlineHeading"><span class="communityOnlineDot" aria-hidden="true"></span><h2>Online now</h2><span class="communityOnlineCount"></span></div><p class="communityOnlineDescription">In this web client</p><ul class="communityOnlineUsers"></ul><p class="communityOnlineStatus" role="status">Loading…</p><div class="communityPrivacyControl"><label><span class="material-icons visibility_off" aria-hidden="true"></span><span>Remain invisible</span><input type="checkbox" role="switch" aria-label="Remain invisible" disabled></label><p class="communityPrivacyHint" role="status">Checking your visibility…</p></div>';
++        this.input = container.querySelector('.communityPrivacyControl input');
++        this.input.addEventListener('change', () => this.setInvisible(this.input.checked));
++        this.preferenceChanged = () => {
++            this.usersKey = null;
++            this.refresh();
++        };
++        this.visibility = () => {
++            if (this.active && document.visibilityState === 'visible') {
++                this.refresh();
++            }
++        };
++    }
++
++    async refresh() {
++        if (!this.active || document.visibilityState !== 'visible') return;
++        if (this.loading || this.changing) {
++            this.refreshPending = true;
++            return;
++        }
++        this.loading = true;
++        const revision = this.revision;
++        try {
++            const [me, { users }] = await Promise.all([communityFetch('/me'), communityFetch('/presence')]);
++            if (!this.active || revision !== this.revision) return;
++            this.me = me;
++            this.input.checked = !me.presenceVisible;
++            this.input.disabled = false;
++            this.updatePrivacyHint();
++            this.renderUsers(users);
++        } catch {
++            if (!this.active || revision !== this.revision) return;
++            this.usersKey = null;
++            this.container.querySelector('.communityOnlineUsers').innerHTML = '';
++            this.container.querySelector('.communityOnlineCount').textContent = '—';
++            this.container.querySelector('.communityOnlineStatus').textContent = 'Online presence unavailable';
++        } finally {
++            this.loading = false;
++            if (this.refreshPending && !this.changing) {
++                this.refreshPending = false;
++                this.refresh();
++            }
++        }
++    }
++
++    updatePrivacyHint() {
++        this.container.querySelector('.communityPrivacyHint').textContent = this.me.presenceVisible ? 'You appear online' : 'You appear offline until you turn this off';
++    }
++
++    async setInvisible(invisible) {
++        if (!this.me || this.changing) return;
++        this.changing = true;
++        this.revision++;
++        this.input.disabled = true;
++        this.container.querySelector('.communityPrivacyHint').textContent = 'Saving…';
++        try {
++            await communityFetch('/presence/preference', { method: 'PUT', body: JSON.stringify({ visible: !invisible }) });
++            this.me.presenceVisible = !invisible;
++            this.input.checked = invisible;
++            this.usersKey = null;
++            this.renderUsers(this.users);
++            this.updatePrivacyHint();
++            if (!invisible) await heartbeat();
++            document.dispatchEvent(new CustomEvent('communitypresencechange', { detail: { visible: !invisible } }));
++        } catch {
++            this.input.checked = !this.me.presenceVisible;
++            this.container.querySelector('.communityPrivacyHint').textContent = 'Could not save visibility. Please try again.';
++        } finally {
++            this.changing = false;
++            this.input.disabled = false;
++            this.refresh();
++        }
++    }
++
++    renderUsers(publishedUsers) {
++        const users = publishedUsers.filter(user => user.id !== this.me?.id || this.me.presenceVisible);
++        this.users = users;
++        const key = JSON.stringify(users.map(user => [user.id, user.name]));
++        if (this.usersKey === key) return;
++        this.usersKey = key;
++        const list = this.container.querySelector('.communityOnlineUsers');
++        list.innerHTML = '';
++        users.forEach(user => {
++            const row = document.createElement('li');
++            const portrait = document.createElement('span');
++            portrait.className = 'communityOnlinePortrait';
++            portrait.appendChild(profileAvatar(user.name, `/presence/${encodeURIComponent(user.id)}/avatar`));
++            const dot = document.createElement('span');
++            dot.className = 'communityOnlineDot';
++            dot.setAttribute('aria-hidden', 'true');
++            portrait.appendChild(dot);
++            const name = document.createElement('span');
++            name.textContent = user.name;
++            row.append(portrait, name);
++            list.appendChild(row);
++        });
++        this.container.querySelector('.communityOnlineCount').textContent = String(users.length);
++        this.container.querySelector('.communityOnlineStatus').textContent = users.length ? '' : 'Nobody is visible right now';
++        this.container.querySelector('.communityOnlineHeading > .communityOnlineDot').classList.toggle('communityOfflineDot', !users.length);
++    }
++
++    resume() {
++        this.pause();
++        this.active = true;
++        document.addEventListener('visibilitychange', this.visibility);
++        document.addEventListener('communitypresencechange', this.preferenceChanged);
++        heartbeat().then(() => this.refresh());
++        this.timer = setInterval(() => this.refresh(), 5_000);
++    }
++
++    pause() {
++        this.active = false;
++        clearInterval(this.timer);
++        this.timer = null;
++        document.removeEventListener('visibilitychange', this.visibility);
++        document.removeEventListener('communitypresencechange', this.preferenceChanged);
++    }
++}
+diff --git a/src/scripts/community/online.test.ts b/src/scripts/community/online.test.ts
+new file mode 100644
+index 0000000..0689003
+--- /dev/null
++++ b/src/scripts/community/online.test.ts
+@@ -0,0 +1,71 @@
++import { afterEach, expect, test, vi } from 'vitest';
++
++vi.mock('./api', () => ({
++    communityFetch: vi.fn(),
++    profileAvatar: () => document.createElement('span')
++}));
++vi.mock('./presence', () => ({ heartbeat: vi.fn(async () => undefined) }));
++
++import { communityFetch } from './api';
++import { OnlinePanel } from './online';
++
++afterEach(() => {
++    vi.restoreAllMocks();
++    document.body.innerHTML = '';
++});
++
++test('invisible removes the current user and green light immediately after saving', async () => {
++    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
++    const me = { id: 'self', name: 'Self', presenceVisible: true };
++    vi.mocked(communityFetch).mockImplementation(async path => {
++        if (path === '/presence/preference') return { visible: false };
++        if (path === '/me') return { ...me, presenceVisible: false };
++        return { users: [] };
++    });
++    const host = document.createElement('aside');
++    document.body.append(host);
++    const panel = new OnlinePanel(host);
++    panel.active = true;
++    panel.me = me;
++    panel.renderUsers([{ id: 'self', name: 'Self' }]);
++    await panel.setInvisible(true);
++    expect(host.querySelector('.communityOnlineCount')?.textContent).toBe('0');
++    expect(host.querySelector('.communityOnlineUsers')?.children.length).toBe(0);
++    expect(host.querySelector('.communityOfflineDot')).not.toBeNull();
++    expect(host.querySelector<HTMLInputElement>('input')?.checked).toBe(true);
++    expect(communityFetch).toHaveBeenCalledWith('/presence/preference', {
++        method: 'PUT', body: JSON.stringify({ visible: false })
++    });
++    panel.pause();
++});
++
++test('a stale presence read cannot relight the user after hiding', async () => {
++    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
++    const me = { id: 'self', name: 'Self', presenceVisible: true };
++    let release: ((value: typeof me) => void) | undefined;
++    const stale = new Promise<typeof me>(resolve => {
++        release = resolve;
++    });
++    let reads = 0;
++    vi.mocked(communityFetch).mockImplementation(async path => {
++        if (path === '/me') {
++            reads++;
++            return reads === 1 ? stale : { ...me, presenceVisible: false };
++        }
++        if (path === '/presence/preference') return { visible: false };
++        return { users: [{ id: 'self', name: 'Self' }] };
++    });
++    const host = document.createElement('aside');
++    document.body.append(host);
++    const panel = new OnlinePanel(host);
++    panel.active = true;
++    panel.me = { ...me };
++    panel.renderUsers([{ id: 'self', name: 'Self' }]);
++    const reading = panel.refresh();
++    await panel.setInvisible(true);
++    release?.(me);
++    await reading;
++    await vi.waitFor(() => expect(host.querySelector('.communityOnlineCount')?.textContent).toBe('0'));
++    expect(host.querySelector<HTMLInputElement>('input')?.checked).toBe(true);
++    panel.pause();
++});
+diff --git a/src/scripts/community/presence.js b/src/scripts/community/presence.js
+new file mode 100644
+index 0000000..632a1d3
+--- /dev/null
++++ b/src/scripts/community/presence.js
+@@ -0,0 +1,103 @@
++import { communityFetch, createId } from './api';
++import './community.scss';
++
++/* eslint-disable @stylistic/max-statements-per-line */
++
++let timer;
++let pollTimer;
++let sessionId;
++let button;
++let dialog;
++
++function getSessionId() {
++    if (!sessionId) {
++        sessionId = sessionStorage.getItem('communityPresenceSession') || createId();
++        sessionStorage.setItem('communityPresenceSession', sessionId);
++    }
++    return sessionId;
++}
++
++export async function heartbeat() {
++    if (document.visibilityState !== 'visible') return;
++    try {
++        await communityFetch('/presence/heartbeat', { method: 'PUT', body: JSON.stringify({ sessionId: getSessionId() }) });
++    } catch (error) {
++        console.debug('Community presence unavailable', error);
++    }
++}
++
++function renderUsers(users) {
++    const list = dialog?.querySelector('.communityPresenceList');
++    if (!list) return;
++    list.innerHTML = '';
++    list.append(...users.map(user => {
++        const row = document.createElement('li');
++        const avatar = document.createElement('span');
++        avatar.className = 'communityInitials';
++        avatar.textContent = user.name.trim().slice(0, 1).toUpperCase() || '?';
++        const name = document.createElement('span');
++        name.textContent = user.name;
++        row.append(avatar, name);
++        return row;
++    }));
++    if (!users.length) {
++        const empty = document.createElement('li');
++        empty.textContent = 'Nobody is visible right now';
++        list.append(empty);
++    }
++}
++
++async function poll() {
++    if (document.visibilityState !== 'visible') return;
++    try {
++        const { users } = await communityFetch('/presence');
++        button?.classList.remove('communityUnavailable');
++        if (button) {
++            button.querySelector('.communityPresenceCount').textContent = String(users.length);
++            button.setAttribute('aria-label', `Online in this web client: ${users.length}`);
++            button.title = `Online in this web client: ${users.length}`;
++        }
++        renderUsers(users);
++    } catch {
++        button?.classList.add('communityUnavailable');
++        if (button) {
++            button.querySelector('.communityPresenceCount').textContent = '?';
++            button.setAttribute('aria-label', 'Online presence unavailable');
++        }
++    }
++}
++
++function ensureDialog() {
++    if (dialog) return dialog;
++    dialog = document.createElement('dialog');
++    dialog.className = 'communityPresenceDialog';
++    dialog.innerHTML = '<form method="dialog"><button class="communityDialogClose" aria-label="Close">×</button><h2>Online in this web client</h2><ul class="communityPresenceList"></ul><a href="#/community">Open Community</a></form>';
++    dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
++    document.body.append(dialog);
++    return dialog;
++}
++
++function visibilityChanged() {
++    if (document.visibilityState === 'visible') {
++        void heartbeat();
++        void poll();
++    }
++}
++
++export function initializePresence(headerButton) {
++    if (button === headerButton) return;
++    button = headerButton;
++    button.addEventListener('click', () => { ensureDialog().showModal(); void poll(); });
++    clearInterval(timer);
++    clearInterval(pollTimer);
++    document.removeEventListener('visibilitychange', visibilityChanged);
++    document.addEventListener('visibilitychange', visibilityChanged);
++    document.removeEventListener('communitypresencechange', poll);
++    document.addEventListener('communitypresencechange', poll);
++    void heartbeat();
++    void poll();
++    timer = setInterval(heartbeat, 30_000);
++    pollTimer = setInterval(poll, 5_000);
++}
++
++/* eslint-enable @stylistic/max-statements-per-line */
+diff --git a/src/scripts/community/preview.js b/src/scripts/community/preview.js
+new file mode 100644
+index 0000000..a9f3acf
+--- /dev/null
++++ b/src/scripts/community/preview.js
+@@ -0,0 +1,166 @@
++import { communityFetch, messageAvatar } from './api';
++import { OnlinePanel } from './online';
++import { HoldAdvance } from './holdAdvance';
++import 'elements/emby-scrollbuttons/emby-scrollbuttons.scss';
++import './community.scss';
++
++/* eslint-disable @stylistic/max-statements-per-line, no-void, sonarjs/pseudo-random */
++
++export class CommunityPreview {
++    constructor(container) {
++        this.container = container;
++        this.timer = null;
++        this.items = [];
++        this.rendered = 0;
++        this.cursor = null;
++        this.browsing = false;
++        this.loadingOlder = false;
++        this.hold = new HoldAdvance(isActive => this.advance(isActive));
++        this.release = () => this.hold.stop();
++        container.classList.add('communityPreviewLayout');
++        this.content = document.createElement('div');
++        this.content.className = 'communityPreviewMessages';
++        const onlineHost = document.createElement('aside');
++        onlineHost.className = 'communityOnlinePanel';
++        onlineHost.setAttribute('aria-label', 'People online');
++        container.append(this.content, onlineHost);
++        this.online = new OnlinePanel(onlineHost);
++    }
++    async refresh() {
++        if (this.browsing || document.visibilityState !== 'visible' || !this.container?.isConnected) return;
++        try {
++            const data = await communityFetch('/messages');
++            this.items = data.items;
++            this.cursor = data.nextCursor;
++            this.rendered = Math.min(3, this.items.length);
++            const items = this.items.slice(0, this.rendered);
++            this.content.innerHTML = '';
++            const heading = document.createElement('div');
++            heading.className = 'sectionTitleContainer sectionTitleContainer-cards padded-left';
++            const link = document.createElement('a');
++            link.setAttribute('is', 'emby-linkbutton');
++            link.className = 'button-flat button-flat-mini sectionTitleTextButton';
++            link.href = '#/community';
++            link.setAttribute('aria-label', 'Open Community');
++            const title = document.createElement('h2');
++            title.className = 'sectionTitle sectionTitle-cards';
++            title.textContent = 'Community';
++            const chevron = document.createElement('span');
++            chevron.className = 'material-icons chevron_right';
++            chevron.setAttribute('aria-hidden', 'true');
++            link.append(title, chevron);
++            heading.append(link);
++            const controls = document.createElement('div');
++            controls.className = 'communitySliderControls';
++            const back = document.createElement('button');
++            back.type = 'button';
++            back.className = 'paper-icon-button-light emby-scrollbuttons-button communitySliderArrow';
++            this.back = back;
++            back.setAttribute('aria-label', 'Show newer messages');
++            back.innerHTML = '<span class="material-icons chevron_left" aria-hidden="true"></span>';
++            back.addEventListener('click', () => {
++                this.hold.stop();
++                this.scroller.scrollLeft = Math.max(0, this.scroller.scrollLeft - this.cardWidth() * 5);
++            });
++            this.next = document.createElement('button');
++            this.next.type = 'button';
++            this.next.className = 'paper-icon-button-light emby-scrollbuttons-button communitySliderArrow';
++            this.next.setAttribute('aria-label', 'Hold to show up to five older messages');
++            this.next.title = 'Hold to show up to five older messages';
++            this.next.innerHTML = '<span class="material-icons chevron_right" aria-hidden="true"></span>';
++            this.next.addEventListener('pointerdown', event => {
++                if (event.button !== 0) return;
++                this.browsing = true;
++                this.hold.start();
++            });
++            this.next.addEventListener('click', event => {
++                if (event.detail === 0) {
++                    this.browsing = true;
++                    this.hold.start();
++                }
++            });
++            controls.append(back, this.next);
++            heading.append(controls);
++
++            const scroller = document.createElement('div');
++            scroller.className = 'communityPreviewScroller padded-left padded-right';
++            this.scroller = scroller;
++            scroller.addEventListener('scroll', () => this.updateArrow());
++            items.forEach(message => { scroller.append(this.card(message)); });
++            if (!items.length) {
++                const empty = document.createElement('a');
++                empty.href = '#/community';
++                empty.className = 'communityPreviewCard communityPreviewEmpty';
++                empty.innerHTML = '<span class="material-icons forum" aria-hidden="true"></span><strong>Start the conversation</strong><span>Open the household message board</span>';
++                scroller.append(empty);
++            }
++            this.content.append(heading, scroller);
++            this.updateArrow();
++        } catch {
++            this.content.textContent = 'Community preview unavailable';
++            this.content.classList.add('communityMuted');
++        }
++    }
++    card(message) {
++        const card = document.createElement('a');
++        card.href = '#/community';
++        card.className = 'communityPreviewCard';
++        const author = document.createElement('strong');
++        author.textContent = message.displayName;
++        const text = document.createElement('span');
++        text.textContent = message.body;
++        const time = document.createElement('time');
++        time.dateTime = new Date(message.createdAt).toISOString();
++        time.textContent = new Date(message.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
++        const identity = document.createElement('div');
++        identity.className = 'communityMessageIdentity';
++        identity.append(messageAvatar(message), author);
++        card.append(identity, text, time);
++        return card;
++    }
++    cardWidth() {
++        return (this.scroller?.querySelector('.communityPreviewCard')?.getBoundingClientRect().width || 300) + 16;
++    }
++    updateArrow() {
++        this.back.disabled = this.scroller.scrollLeft <= 2;
++        this.next.disabled = this.rendered >= this.items.length && !this.cursor && this.scroller.scrollLeft >= this.scroller.scrollWidth - this.scroller.clientWidth - 2;
++    }
++    async advance(isActive) {
++        if (!this.scroller?.isConnected || this.loadingOlder) return false;
++        try {
++            if (this.scroller.scrollLeft < this.scroller.scrollWidth - this.scroller.clientWidth - 2) {
++                this.scroller.scrollLeft += this.cardWidth();
++                this.updateArrow();
++                return true;
++            }
++            if (this.rendered >= this.items.length && this.cursor) {
++                this.loadingOlder = true;
++                const data = await communityFetch(`/messages?cursor=${encodeURIComponent(this.cursor)}`);
++                const ids = new Set(this.items.map(item => item.id));
++                this.items.push(...data.items.filter(item => !ids.has(item.id)));
++                this.cursor = data.nextCursor;
++                this.loadingOlder = false;
++                // Release, pause or navigation during the fetch must not move the slider.
++                if (!isActive() || !this.scroller.isConnected) return false;
++            }
++            if (this.rendered < this.items.length) {
++                this.scroller.append(this.card(this.items[this.rendered++]));
++            } else {
++                this.next.disabled = true;
++                return false;
++            }
++            this.scroller.scrollLeft += this.cardWidth();
++            this.updateArrow();
++            return true;
++        } catch {
++            this.loadingOlder = false;
++            this.next.title = 'Could not load older messages. Try again.';
++            return false;
++        }
++    }
++    resume() { this.browsing = false; window.addEventListener('pointerup', this.release); window.addEventListener('pointercancel', this.release); window.addEventListener('blur', this.release); this.online.resume(); void this.refresh(); clearInterval(this.timer); this.timer = setInterval(() => void this.refresh(), 30_000 + Math.floor(Math.random() * 2500)); }
++    pause() { this.hold.stop(); window.removeEventListener('pointerup', this.release); window.removeEventListener('pointercancel', this.release); window.removeEventListener('blur', this.release); this.online.pause(); clearInterval(this.timer); this.timer = null; }
++    destroy() { this.pause(); this.container?.remove(); this.container = null; }
++}
++
++/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/pseudo-random */
+diff --git a/src/scripts/libraryMenu.js b/src/scripts/libraryMenu.js
+index 7b818d4..29012b1 100644
+--- a/src/scripts/libraryMenu.js
++++ b/src/scripts/libraryMenu.js
+@@ -25,6 +25,7 @@ import Dashboard, { pageClassOn } from '../utils/dashboard';
+ import Events from '../utils/events.ts';
+ import { getParameterByName } from '../utils/url.ts';
+ import datetime from '../scripts/datetime';
++import { initializePresence } from './community/presence';
+ 
+ import '../elements/emby-button/paper-icon-button-light';
+ 
+@@ -42,6 +43,7 @@ function renderHeader() {
+     html += '<h3 class="pageTitle" aria-hidden="true"></h3>';
+     html += '</div>';
+     html += '<div class="headerRight">';
++    html += '<button type="button" is="paper-icon-button-light" class="headerButton headerButtonRight communityPresenceButton hide" aria-label="Online presence unavailable"><span class="material-icons groups" aria-hidden="true"></span><span class="communityPresenceLabel">Online</span><span class="communityPresenceCount">?</span></button>';
+     html += '<button is="paper-icon-button-light" class="headerSyncButton syncButton headerButton headerButtonRight hide"><span class="material-icons groups" aria-hidden="true"></span></button>';
+     html += '<span class="headerSelectedPlayer"></span>';
+     html += '<button is="paper-icon-button-light" class="headerAudioPlayerButton audioPlayerButton headerButton headerButtonRight hide"><span class="material-icons music_note" aria-hidden="true"></span></button>';
+@@ -69,6 +71,8 @@ function renderHeader() {
+     headerSearchButton = skinHeader.querySelector('.headerSearchButton');
+     headerSyncButton = skinHeader.querySelector('.headerSyncButton');
+     currentTimeText = skinHeader.querySelector('.currentTimeText');
++    communityPresenceButton = skinHeader.querySelector('.communityPresenceButton');
++    initializePresence(communityPresenceButton);
+ 
+     retranslateUi();
+     lazyLoadViewMenuBarImages();
+@@ -142,8 +146,10 @@ function updateUserInHeader(user) {
+         }
+         headerUserButton.title = user.name;
+         headerUserButton.classList.remove('hide');
++        communityPresenceButton.classList.remove('hide');
+     } else {
+         headerUserButton.classList.add('hide');
++        communityPresenceButton.classList.add('hide');
+     }
+ 
+     if (!hasImage) {
+@@ -478,6 +484,8 @@ function updateLibraryMenu(user) {
+                                     <span class="sectionName navMenuOptionText">${escapeHtml(i.Name)}</span>
+                                   </a>`;
+             }).join('');
++            html += '<a is="emby-linkbutton" data-itemid="community" class="lnkMediaFolder navMenuOption" href="#/community"><span class="material-icons navMenuOptionIcon forum" aria-hidden="true"></span><span class="navMenuOptionText">Community</span></a>';
++            html += '<a is="emby-linkbutton" data-itemid="request-media" class="lnkMediaFolder navMenuOption" href="#/request-media"><span class="material-icons navMenuOptionIcon add_to_queue" aria-hidden="true"></span><span class="navMenuOptionText">Request media</span></a>';
+             libraryMenuOptions.innerHTML = html;
+             const elem = libraryMenuOptions;
+             const sidebarLinks = elem.querySelectorAll('.navMenuOption');
+@@ -698,6 +706,7 @@ let headerCastButton;
+ let headerSearchButton;
+ let headerAudioPlayerButton;
+ let headerSyncButton;
++let communityPresenceButton;
+ let currentTimeText;
+ const enableLibraryNavDrawer = layoutManager.desktop;
+ const enableLibraryNavDrawerHome = !layoutManager.tv;
+-- 
+2.43.0
+
