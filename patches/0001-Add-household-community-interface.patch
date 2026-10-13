@@ -1,4 +1,4 @@
-From 1f90f9e069be3f4117bf4006a31766de54516036 Mon Sep 17 00:00:00 2001
+From f6152c4b6df15df90631411b407c28396e81affb Mon Sep 17 00:00:00 2001
 From: Jellyfin Household Maintainer <maintainer@localhost>
 Date: Mon, 14 Sep 2026 16:12:25 +0200
 Subject: [PATCH] Add household community interface
@@ -7,7 +7,7 @@ Subject: [PATCH] Add household community interface
  package-lock.json                             | 2912 ++++++++++-------
  package.json                                  |   13 +-
  src/apps/legacy/controllers/community.html    |   19 +
- src/apps/legacy/controllers/community.js      |   85 +
+ src/apps/legacy/controllers/community.js      |   86 +
  src/apps/legacy/controllers/hometab.js        |   11 +
  src/apps/legacy/controllers/requestmedia.html |    9 +
  src/apps/legacy/controllers/requestmedia.js   |   88 +
@@ -15,23 +15,27 @@ Subject: [PATCH] Add household community interface
  .../components/drawers/MainDrawerContent.tsx  |   18 +
  src/apps/modern/routes/legacyRoutes/user.ts   |   12 +
  src/scripts/community/api.js                  |   58 +
- src/scripts/community/community.scss          |   82 +
- src/scripts/community/emojiPicker.js          |   80 +
+ src/scripts/community/community.scss          |   83 +
+ src/scripts/community/emojiDisplay.js         |   30 +
+ src/scripts/community/emojiDisplay.test.ts    |   13 +
+ src/scripts/community/emojiPicker.js          |   82 +
  src/scripts/community/emojiPicker.test.ts     |   29 +
  src/scripts/community/holdAdvance.js          |   28 +
  src/scripts/community/holdAdvance.test.ts     |   29 +
  src/scripts/community/online.js               |  134 +
  src/scripts/community/online.test.ts          |   71 +
  src/scripts/community/presence.js             |  103 +
- src/scripts/community/preview.js              |  166 +
+ src/scripts/community/preview.js              |  167 +
  src/scripts/libraryMenu.js                    |    9 +
- 21 files changed, 2784 insertions(+), 1184 deletions(-)
+ 23 files changed, 2832 insertions(+), 1184 deletions(-)
  create mode 100644 src/apps/legacy/controllers/community.html
  create mode 100644 src/apps/legacy/controllers/community.js
  create mode 100644 src/apps/legacy/controllers/requestmedia.html
  create mode 100644 src/apps/legacy/controllers/requestmedia.js
  create mode 100644 src/scripts/community/api.js
  create mode 100644 src/scripts/community/community.scss
+ create mode 100644 src/scripts/community/emojiDisplay.js
+ create mode 100644 src/scripts/community/emojiDisplay.test.ts
  create mode 100644 src/scripts/community/emojiPicker.js
  create mode 100644 src/scripts/community/emojiPicker.test.ts
  create mode 100644 src/scripts/community/holdAdvance.js
@@ -5116,11 +5120,12 @@ index 0000000..7a0ea69
 +</div>
 diff --git a/src/apps/legacy/controllers/community.js b/src/apps/legacy/controllers/community.js
 new file mode 100644
-index 0000000..e285c0c
+index 0000000..e7f3672
 --- /dev/null
 +++ b/src/apps/legacy/controllers/community.js
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,86 @@
 +import { communityFetch, messageAvatar } from 'scripts/community/api';
++import { renderEmojiText } from 'scripts/community/emojiDisplay';
 +import { OnlinePanel } from 'scripts/community/online';
 +import { EmojiPicker } from 'scripts/community/emojiPicker';
 +import 'scripts/community/community.scss';
@@ -5173,7 +5178,7 @@ index 0000000..e285c0c
 +        header.className = 'communityMessageHeader';
 +        const author = document.createElement('strong'); author.textContent = message.displayName;
 +        const time = document.createElement('time'); time.dateTime = new Date(message.createdAt).toISOString(); time.textContent = new Date(message.createdAt).toLocaleString();
-+        const body = document.createElement('p'); body.className = 'communityMessageBody'; body.textContent = message.body;
++        const body = document.createElement('p'); body.className = 'communityMessageBody'; renderEmojiText(body, message.body);
 +        header.append(messageAvatar(message), author, time);
 +        if (message.authorId === this.me?.id || this.me?.isAdmin) {
 +            const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'communityMessageDelete'; remove.textContent = 'Delete';
@@ -5517,10 +5522,10 @@ index 0000000..060573d
 +/* eslint-enable sonarjs/pseudo-random */
 diff --git a/src/scripts/community/community.scss b/src/scripts/community/community.scss
 new file mode 100644
-index 0000000..05ee10f
+index 0000000..a4ece6e
 --- /dev/null
 +++ b/src/scripts/community/community.scss
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,83 @@
 +.communityPresenceButton { width: auto !important; min-width: 3.2em; gap: .2em; padding-inline: .65em !important; }
 +.communityPresenceButton.communityUnavailable { opacity: .55; }
 +.communityPresenceLabel { font-size: .86em; }
@@ -5557,6 +5562,7 @@ index 0000000..05ee10f
 +.communityAvatar img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
 +.communityMessageHeader time { opacity: .65; font-size: .9em; }
 +.communityMessageBody { white-space: pre-wrap; overflow-wrap: anywhere; margin: .55em 0; }
++.communityFlagEmoji { display: inline-block; width: 1.375em; height: 1em; vertical-align: -.1em; }
 +.communityMessageDelete { margin-left: auto; }
 +.communityPreview { margin-top: 2em; padding-bottom: 1.5em; }
 +.communityPreviewScroller { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(16em, 22em); gap: 1em; overflow-x: auto; padding-top: .5em; padding-bottom: .8em; scroll-snap-type: x proximity; scrollbar-width: none; }
@@ -5603,12 +5609,69 @@ index 0000000..05ee10f
 +.requestCard:hover,.requestCard:focus-visible { background: #ffffff20; outline: 2px solid #00a4dc; }
 +.requestSeasons { display: grid; gap: .5em; margin: 1em 0; }
 +@media (max-width: 600px) { .communityPresenceLabel { display: none; } .communityPage { padding-top: 4.5em; } }
+diff --git a/src/scripts/community/emojiDisplay.js b/src/scripts/community/emojiDisplay.js
+new file mode 100644
+index 0000000..569594e
+--- /dev/null
++++ b/src/scripts/community/emojiDisplay.js
+@@ -0,0 +1,30 @@
++// Original vector artwork: keep the Unicode flag in storage, render it independently of OS fonts.
++const FLAG = '🇮🇱';
++const SVG_NS = 'http://www.w3.org/2000/svg';
++
++function flagImage() {
++    const svg = document.createElementNS(SVG_NS, 'svg');
++    svg.setAttribute('viewBox', '0 0 66 48');
++    svg.setAttribute('role', 'img');
++    svg.setAttribute('aria-label', 'Israel flag');
++    svg.classList.add('communityFlagEmoji');
++    const shapes = [
++        ['rect', { width: '66', height: '48', fill: '#fff' }],
++        ['path', { d: 'M0 8H66M0 40H66', stroke: '#0038b8', 'stroke-width': '6' }],
++        ['path', { d: 'M33 14L42 29H24ZM33 34L24 19H42Z', fill: 'none', stroke: '#0038b8', 'stroke-width': '1.8', 'stroke-linejoin': 'round' }]
++    ];
++    shapes.forEach(([tag, attrs]) => {
++        const shape = document.createElementNS(SVG_NS, tag);
++        Object.entries(attrs).forEach(([key, value]) => shape.setAttribute(key, value));
++        svg.appendChild(shape);
++    });
++    return svg;
++}
++
++export function renderEmojiText(element, text) {
++    element.replaceChildren();
++    text.split(FLAG).forEach((part, index) => {
++        if (index) element.appendChild(flagImage());
++        element.appendChild(document.createTextNode(part));
++    });
++}
+diff --git a/src/scripts/community/emojiDisplay.test.ts b/src/scripts/community/emojiDisplay.test.ts
+new file mode 100644
+index 0000000..9fa261a
+--- /dev/null
++++ b/src/scripts/community/emojiDisplay.test.ts
+@@ -0,0 +1,13 @@
++import { expect, test } from 'vitest';
++import { renderEmojiText } from './emojiDisplay';
++
++test('flags render as accessible vectors while message markup stays plain text', () => {
++    const host = document.createElement('p');
++    renderEmojiText(host, '<img onerror="alert(1)"> 🇮🇱 hello 🇮🇱 🧃');
++    expect(host.querySelectorAll('svg[aria-label="Israel flag"]')).toHaveLength(2);
++    expect(host.querySelector('img')).toBeNull();
++    expect(host.textContent).toBe('<img onerror="alert(1)">  hello  🧃');
++    renderEmojiText(host, 'plain');
++    expect(host.querySelector('svg')).toBeNull();
++    expect(host.textContent).toBe('plain');
++});
 diff --git a/src/scripts/community/emojiPicker.js b/src/scripts/community/emojiPicker.js
 new file mode 100644
-index 0000000..cd0e16c
+index 0000000..e62c440
 --- /dev/null
 +++ b/src/scripts/community/emojiPicker.js
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,82 @@
++import { renderEmojiText } from './emojiDisplay';
++
 +const FACES = [
 +    ['😀', 'Grinning face'], ['😃', 'Happy face'], ['😄', 'Smiling face'], ['😁', 'Beaming face'],
 +    ['😆', 'Laughing face'], ['😅', 'Smiling with sweat'], ['😂', 'Tears of joy'], ['🤣', 'Rolling with laughter'],
@@ -5655,7 +5718,7 @@ index 0000000..cd0e16c
 +                const button = document.createElement('button');
 +                button.type = 'button';
 +                button.className = 'communityEmojiChoice';
-+                button.textContent = emoji;
++                renderEmojiText(button, emoji);
 +                button.title = label;
 +                button.setAttribute('aria-label', label);
 +                button.addEventListener('click', () => {
@@ -6121,11 +6184,12 @@ index 0000000..632a1d3
 +/* eslint-enable @stylistic/max-statements-per-line */
 diff --git a/src/scripts/community/preview.js b/src/scripts/community/preview.js
 new file mode 100644
-index 0000000..a9f3acf
+index 0000000..c740e83
 --- /dev/null
 +++ b/src/scripts/community/preview.js
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,167 @@
 +import { communityFetch, messageAvatar } from './api';
++import { renderEmojiText } from './emojiDisplay';
 +import { OnlinePanel } from './online';
 +import { HoldAdvance } from './holdAdvance';
 +import 'elements/emby-scrollbuttons/emby-scrollbuttons.scss';
@@ -6235,7 +6299,7 @@ index 0000000..a9f3acf
 +        const author = document.createElement('strong');
 +        author.textContent = message.displayName;
 +        const text = document.createElement('span');
-+        text.textContent = message.body;
++        renderEmojiText(text, message.body);
 +        const time = document.createElement('time');
 +        time.dateTime = new Date(message.createdAt).toISOString();
 +        time.textContent = new Date(message.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
