@@ -1,3 +1,72 @@
+From 14391675361edfec52d5deb6e574606797a7f42d Mon Sep 17 00:00:00 2001
+From: Jellyfin Household Maintainer <maintainer@localhost>
+Date: Mon, 14 Sep 2026 16:12:25 +0200
+Subject: [PATCH] Add household community interface
+
+---
+ package-lock.json                             | 2912 ++++++++++-------
+ package.json                                  |   13 +-
+ src/apps/legacy/controllers/community.html    |   19 +
+ src/apps/legacy/controllers/community.js      |  131 +
+ src/apps/legacy/controllers/hometab.js        |   19 +
+ src/apps/legacy/controllers/requestmedia.html |   14 +
+ src/apps/legacy/controllers/requestmedia.js   |  154 +
+ src/apps/legacy/routes/legacyRoutes/user.ts   |   12 +
+ .../components/drawers/MainDrawerContent.tsx  |   18 +
+ src/apps/modern/routes/legacyRoutes/user.ts   |   12 +
+ src/assets/img/tmdb-logo.svg                  |  Bin 0 -> 2065 bytes
+ src/scripts/community/api.js                  |   67 +
+ src/scripts/community/chat.js                 |  265 ++
+ src/scripts/community/chat.test.ts            |   70 +
+ src/scripts/community/community.scss          |  206 ++
+ src/scripts/community/emojiDisplay.js         |   30 +
+ src/scripts/community/emojiDisplay.test.ts    |   13 +
+ src/scripts/community/emojiPicker.js          |   83 +
+ src/scripts/community/emojiPicker.test.ts     |   29 +
+ src/scripts/community/holdAdvance.js          |   28 +
+ src/scripts/community/holdAdvance.test.ts     |   29 +
+ src/scripts/community/online.js               |  142 +
+ src/scripts/community/online.test.ts          |   72 +
+ src/scripts/community/playbackPosition.js     |   35 +
+ .../community/playbackPosition.test.ts        |   31 +
+ src/scripts/community/presence.js             |  112 +
+ src/scripts/community/presence.test.ts        |   25 +
+ src/scripts/community/preview.js              |  196 ++
+ src/scripts/community/preview.test.ts         |   19 +
+ src/scripts/community/requestBoard.js         |   87 +
+ src/scripts/community/requestBoard.test.ts    |   79 +
+ src/scripts/community/socialWidgets.js        |  104 +
+ src/scripts/community/socialWidgets.test.ts   |    9 +
+ src/scripts/libraryMenu.js                    |   12 +
+ 34 files changed, 3863 insertions(+), 1184 deletions(-)
+ create mode 100644 src/apps/legacy/controllers/community.html
+ create mode 100644 src/apps/legacy/controllers/community.js
+ create mode 100644 src/apps/legacy/controllers/requestmedia.html
+ create mode 100644 src/apps/legacy/controllers/requestmedia.js
+ create mode 100644 src/assets/img/tmdb-logo.svg
+ create mode 100644 src/scripts/community/api.js
+ create mode 100644 src/scripts/community/chat.js
+ create mode 100644 src/scripts/community/chat.test.ts
+ create mode 100644 src/scripts/community/community.scss
+ create mode 100644 src/scripts/community/emojiDisplay.js
+ create mode 100644 src/scripts/community/emojiDisplay.test.ts
+ create mode 100644 src/scripts/community/emojiPicker.js
+ create mode 100644 src/scripts/community/emojiPicker.test.ts
+ create mode 100644 src/scripts/community/holdAdvance.js
+ create mode 100644 src/scripts/community/holdAdvance.test.ts
+ create mode 100644 src/scripts/community/online.js
+ create mode 100644 src/scripts/community/online.test.ts
+ create mode 100644 src/scripts/community/playbackPosition.js
+ create mode 100644 src/scripts/community/playbackPosition.test.ts
+ create mode 100644 src/scripts/community/presence.js
+ create mode 100644 src/scripts/community/presence.test.ts
+ create mode 100644 src/scripts/community/preview.js
+ create mode 100644 src/scripts/community/preview.test.ts
+ create mode 100644 src/scripts/community/requestBoard.js
+ create mode 100644 src/scripts/community/requestBoard.test.ts
+ create mode 100644 src/scripts/community/socialWidgets.js
+ create mode 100644 src/scripts/community/socialWidgets.test.ts
+
 diff --git a/package-lock.json b/package-lock.json
 index c8a45f3..1784af4 100644
 --- a/package-lock.json
@@ -6668,6 +6737,84 @@ index 0000000..936038c
 +    expect(host.querySelector<HTMLInputElement>('input')?.checked).toBe(true);
 +    panel.pause();
 +});
+diff --git a/src/scripts/community/playbackPosition.js b/src/scripts/community/playbackPosition.js
+new file mode 100644
+index 0000000..bfb8482
+--- /dev/null
++++ b/src/scripts/community/playbackPosition.js
+@@ -0,0 +1,35 @@
++import { playbackManager } from 'components/playback/playbackmanager';
++import Events from 'utils/events';
++import { EventType } from 'constants/eventType';
++
++// Keep Messages above the bottom controls and subtitle region during local video.
++export class PlaybackChatPosition {
++    /** @param {HTMLElement} root @param {{isPlayingVideo: Function, getCurrentPlayer?: Function}} manager */
++    constructor(root,manager=playbackManager) {
++        this.root=root; this.manager=manager; this.home=root.parentElement; this.controlsVisible=true;
++        this.osd=(_event,visible)=> {this.controlsVisible=visible; this.update();};
++        Events.on(document,EventType.SHOW_VIDEO_OSD,this.osd);
++        this.start=(_event,player)=> {this.playing=!!player?.isLocalPlayer && !player?.isExternalPlayer && manager.isPlayingVideo(player); this.update();};
++        this.stop=()=> {this.playing=false; this.update();};
++        this.fullscreen=()=>this.update();
++        Events.on(manager,'playbackstart',this.start); Events.on(manager,'playbackstop',this.stop);
++        document.addEventListener('fullscreenchange',this.fullscreen); document.addEventListener('webkitfullscreenchange',this.fullscreen);
++        const player=manager.getCurrentPlayer?.();
++        this.playing=!!player?.isLocalPlayer && !player?.isExternalPlayer && manager.isPlayingVideo(player); this.update();
++    }
++    update() {
++        this.root.classList.toggle('communityChatPlayback',this.playing);
++        this.root.classList.toggle('communityChatControlsHidden',this.playing && !this.controlsVisible);
++        const fullscreen=document.fullscreenElement || document.webkitFullscreenElement;
++        // Native video fullscreen cannot contain web overlays. Do not reparent into a video element.
++        const target=this.playing && fullscreen instanceof HTMLElement && !['VIDEO','IFRAME'].includes(fullscreen.tagName) ? fullscreen : this.home;
++        if(target && target!==this.root && this.root.parentElement!==target) target.append(this.root);
++    }
++    destroy() {
++        Events.off(document,EventType.SHOW_VIDEO_OSD,this.osd);
++        Events.off(this.manager,'playbackstart',this.start); Events.off(this.manager,'playbackstop',this.stop);
++        document.removeEventListener('fullscreenchange',this.fullscreen); document.removeEventListener('webkitfullscreenchange',this.fullscreen);
++        this.root.classList.remove('communityChatPlayback','communityChatControlsHidden');
++        if(this.home && this.root.parentElement!==this.home) this.home.append(this.root);
++    }
++}
+diff --git a/src/scripts/community/playbackPosition.test.ts b/src/scripts/community/playbackPosition.test.ts
+new file mode 100644
+index 0000000..3e086b0
+--- /dev/null
++++ b/src/scripts/community/playbackPosition.test.ts
+@@ -0,0 +1,31 @@
++import { afterEach,expect,test,vi } from 'vitest';
++vi.mock('components/playback/playbackmanager',()=>({playbackManager:{}}));
++import Events from 'utils/events';
++import { EventType } from 'constants/eventType';
++import { PlaybackChatPosition } from './playbackPosition';
++let position:PlaybackChatPosition;
++afterEach(()=>{position?.destroy();document.body.replaceChildren();vi.restoreAllMocks();Reflect.deleteProperty(document,'fullscreenElement');});
++test('local video positions Messages above controls and restores on stop; audio and remote playback do not',()=>{
++ const root=document.createElement('section');document.body.append(root);const manager={isPlayingVideo:(p:{video:boolean})=>p.video};position=new PlaybackChatPosition(root,manager);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true,video:true}]);expect(root.classList.contains('communityChatPlayback')).toBe(true);
++ Events.trigger(manager,'playbackstop');expect(root.classList.contains('communityChatPlayback')).toBe(false);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:false,video:true}]);expect(root.classList.contains('communityChatPlayback')).toBe(false);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true,video:false}]);expect(root.classList.contains('communityChatPlayback')).toBe(false);
++});
++test('chat enters fullscreen containers and returns afterwards without moving into native video elements',()=>{
++ const root=document.createElement('section'),fullscreen=document.createElement('div');document.body.append(root,fullscreen);let current:Element|null=fullscreen;Object.defineProperty(document,'fullscreenElement',{configurable:true,get:()=>current});
++ const manager={isPlayingVideo:()=>true};position=new PlaybackChatPosition(root,manager);Events.trigger(manager,'playbackstart',[{isLocalPlayer:true}]);expect(root.parentElement).toBe(fullscreen);
++ current=null;document.dispatchEvent(new Event('fullscreenchange'));expect(root.parentElement).toBe(document.body);
++ const video=document.createElement('video');document.body.append(video);current=video;document.dispatchEvent(new Event('fullscreenchange'));expect(root.parentElement).toBe(document.body);
++});
++
++
++test('Messages follows the player controls inactivity state and stays visible outside video playback',()=>{
++ const root=document.createElement('section');document.body.append(root);const manager={isPlayingVideo:()=>true};position=new PlaybackChatPosition(root,manager);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true}]);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);expect(root.classList.contains('communityChatControlsHidden')).toBe(true);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[true]);expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);Events.trigger(manager,'playbackstop');expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
++ position.destroy();Events.trigger(document,EventType.SHOW_VIDEO_OSD,[true]);expect(root.className).toBe('');
++});
 diff --git a/src/scripts/community/presence.js b/src/scripts/community/presence.js
 new file mode 100644
 index 0000000..ef36056
@@ -7019,6 +7166,31 @@ index 0000000..24b2026
 +}
 +
 +/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/pseudo-random */
+diff --git a/src/scripts/community/preview.test.ts b/src/scripts/community/preview.test.ts
+new file mode 100644
+index 0000000..37b54ed
+--- /dev/null
++++ b/src/scripts/community/preview.test.ts
+@@ -0,0 +1,19 @@
++import { afterEach,expect,test,vi } from 'vitest';
++vi.mock('./api',()=>({communityFetch:vi.fn(),messageAvatar:()=>document.createElement('span')}));
++vi.mock('./online',()=>({OnlinePanel:class {resume() {} pause() {}}}));
++import { communityFetch } from './api';
++import { CommunityPreview } from './preview';
++let preview:CommunityPreview;
++afterEach(()=>{preview?.destroy();vi.restoreAllMocks();document.body.replaceChildren();});
++test('homepage reaction controls sit outside links and update while browsing older messages',async()=>{
++ vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');let reactions=[{emoji:'😀',count:1,mine:false,people:[{name:'Peer'}]}];
++ const message={id:'first',authorId:'peer',displayName:'Peer',body:'Hello',createdAt:1700000000000,reactions};
++ vi.mocked(communityFetch).mockImplementation(async path=>{
++  if(path==='/messages')return {items:[message],nextCursor:null};if(path==='/messages/snapshot')return {items:[{...message,reactions}]};
++  if(path==='/reactions/board/first')return {reactions:[{...reactions[0],count:2,mine:true}]};throw new Error('Unexpected endpoint');
++ });
++ const container=document.createElement('div');document.body.append(container);preview=new CommunityPreview(container);preview.active=true;await preview.refresh();
++ const card=container.querySelector('.communityPreviewCard')!;expect(card.tagName).toBe('ARTICLE');expect(card.querySelector('a button')).toBeNull();expect(card.querySelector('.communityReactionCount')?.textContent,card.outerHTML).toBe('1');
++ card.querySelector<HTMLButtonElement>('.communityReaction')!.click();await vi.waitFor(()=>expect(card.querySelector('[aria-pressed="true"]')).not.toBeNull());
++ preview.browsing=true;reactions=[{emoji:'😎',count:3,mine:false,people:[{name:'Other'}]}];await preview.refreshReactions();expect(card.querySelector('.communityReactionCount')?.textContent).toBe('3');
++});
 diff --git a/src/scripts/community/requestBoard.js b/src/scripts/community/requestBoard.js
 new file mode 100644
 index 0000000..556c08f
@@ -7396,106 +7568,6 @@ index 7b818d4..c899fd5 100644
      currentUser = {};
      updateUserInHeader();
  });
-diff --git a/src/scripts/community/playbackPosition.js b/src/scripts/community/playbackPosition.js
-new file mode 100644
-index 0000000..bfb8482
---- /dev/null
-+++ b/src/scripts/community/playbackPosition.js
-@@ -0,0 +1,35 @@
-+import { playbackManager } from 'components/playback/playbackmanager';
-+import Events from 'utils/events';
-+import { EventType } from 'constants/eventType';
-+
-+// Keep Messages above the bottom controls and subtitle region during local video.
-+export class PlaybackChatPosition {
-+    /** @param {HTMLElement} root @param {{isPlayingVideo: Function, getCurrentPlayer?: Function}} manager */
-+    constructor(root,manager=playbackManager) {
-+        this.root=root; this.manager=manager; this.home=root.parentElement; this.controlsVisible=true;
-+        this.osd=(_event,visible)=> {this.controlsVisible=visible; this.update();};
-+        Events.on(document,EventType.SHOW_VIDEO_OSD,this.osd);
-+        this.start=(_event,player)=> {this.playing=!!player?.isLocalPlayer && !player?.isExternalPlayer && manager.isPlayingVideo(player); this.update();};
-+        this.stop=()=> {this.playing=false; this.update();};
-+        this.fullscreen=()=>this.update();
-+        Events.on(manager,'playbackstart',this.start); Events.on(manager,'playbackstop',this.stop);
-+        document.addEventListener('fullscreenchange',this.fullscreen); document.addEventListener('webkitfullscreenchange',this.fullscreen);
-+        const player=manager.getCurrentPlayer?.();
-+        this.playing=!!player?.isLocalPlayer && !player?.isExternalPlayer && manager.isPlayingVideo(player); this.update();
-+    }
-+    update() {
-+        this.root.classList.toggle('communityChatPlayback',this.playing);
-+        this.root.classList.toggle('communityChatControlsHidden',this.playing && !this.controlsVisible);
-+        const fullscreen=document.fullscreenElement || document.webkitFullscreenElement;
-+        // Native video fullscreen cannot contain web overlays. Do not reparent into a video element.
-+        const target=this.playing && fullscreen instanceof HTMLElement && !['VIDEO','IFRAME'].includes(fullscreen.tagName) ? fullscreen : this.home;
-+        if(target && target!==this.root && this.root.parentElement!==target) target.append(this.root);
-+    }
-+    destroy() {
-+        Events.off(document,EventType.SHOW_VIDEO_OSD,this.osd);
-+        Events.off(this.manager,'playbackstart',this.start); Events.off(this.manager,'playbackstop',this.stop);
-+        document.removeEventListener('fullscreenchange',this.fullscreen); document.removeEventListener('webkitfullscreenchange',this.fullscreen);
-+        this.root.classList.remove('communityChatPlayback','communityChatControlsHidden');
-+        if(this.home && this.root.parentElement!==this.home) this.home.append(this.root);
-+    }
-+}
-diff --git a/src/scripts/community/playbackPosition.test.ts b/src/scripts/community/playbackPosition.test.ts
-new file mode 100644
-index 0000000..3e086b0
---- /dev/null
-+++ b/src/scripts/community/playbackPosition.test.ts
-@@ -0,0 +1,31 @@
-+import { afterEach,expect,test,vi } from 'vitest';
-+vi.mock('components/playback/playbackmanager',()=>({playbackManager:{}}));
-+import Events from 'utils/events';
-+import { EventType } from 'constants/eventType';
-+import { PlaybackChatPosition } from './playbackPosition';
-+let position:PlaybackChatPosition;
-+afterEach(()=>{position?.destroy();document.body.replaceChildren();vi.restoreAllMocks();Reflect.deleteProperty(document,'fullscreenElement');});
-+test('local video positions Messages above controls and restores on stop; audio and remote playback do not',()=>{
-+ const root=document.createElement('section');document.body.append(root);const manager={isPlayingVideo:(p:{video:boolean})=>p.video};position=new PlaybackChatPosition(root,manager);
-+ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true,video:true}]);expect(root.classList.contains('communityChatPlayback')).toBe(true);
-+ Events.trigger(manager,'playbackstop');expect(root.classList.contains('communityChatPlayback')).toBe(false);
-+ Events.trigger(manager,'playbackstart',[{isLocalPlayer:false,video:true}]);expect(root.classList.contains('communityChatPlayback')).toBe(false);
-+ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true,video:false}]);expect(root.classList.contains('communityChatPlayback')).toBe(false);
-+});
-+test('chat enters fullscreen containers and returns afterwards without moving into native video elements',()=>{
-+ const root=document.createElement('section'),fullscreen=document.createElement('div');document.body.append(root,fullscreen);let current:Element|null=fullscreen;Object.defineProperty(document,'fullscreenElement',{configurable:true,get:()=>current});
-+ const manager={isPlayingVideo:()=>true};position=new PlaybackChatPosition(root,manager);Events.trigger(manager,'playbackstart',[{isLocalPlayer:true}]);expect(root.parentElement).toBe(fullscreen);
-+ current=null;document.dispatchEvent(new Event('fullscreenchange'));expect(root.parentElement).toBe(document.body);
-+ const video=document.createElement('video');document.body.append(video);current=video;document.dispatchEvent(new Event('fullscreenchange'));expect(root.parentElement).toBe(document.body);
-+});
-+
-+
-+test('Messages follows the player controls inactivity state and stays visible outside video playback',()=>{
-+ const root=document.createElement('section');document.body.append(root);const manager={isPlayingVideo:()=>true};position=new PlaybackChatPosition(root,manager);
-+ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true}]);
-+ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);expect(root.classList.contains('communityChatControlsHidden')).toBe(true);
-+ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[true]);expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
-+ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);Events.trigger(manager,'playbackstop');expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
-+ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
-+ position.destroy();Events.trigger(document,EventType.SHOW_VIDEO_OSD,[true]);expect(root.className).toBe('');
-+});
-diff --git a/src/scripts/community/preview.test.ts b/src/scripts/community/preview.test.ts
-new file mode 100644
-index 0000000..37b54ed
---- /dev/null
-+++ b/src/scripts/community/preview.test.ts
-@@ -0,0 +1,19 @@
-+import { afterEach,expect,test,vi } from 'vitest';
-+vi.mock('./api',()=>({communityFetch:vi.fn(),messageAvatar:()=>document.createElement('span')}));
-+vi.mock('./online',()=>({OnlinePanel:class {resume() {} pause() {}}}));
-+import { communityFetch } from './api';
-+import { CommunityPreview } from './preview';
-+let preview:CommunityPreview;
-+afterEach(()=>{preview?.destroy();vi.restoreAllMocks();document.body.replaceChildren();});
-+test('homepage reaction controls sit outside links and update while browsing older messages',async()=>{
-+ vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');let reactions=[{emoji:'😀',count:1,mine:false,people:[{name:'Peer'}]}];
-+ const message={id:'first',authorId:'peer',displayName:'Peer',body:'Hello',createdAt:1700000000000,reactions};
-+ vi.mocked(communityFetch).mockImplementation(async path=>{
-+  if(path==='/messages')return {items:[message],nextCursor:null};if(path==='/messages/snapshot')return {items:[{...message,reactions}]};
-+  if(path==='/reactions/board/first')return {reactions:[{...reactions[0],count:2,mine:true}]};throw new Error('Unexpected endpoint');
-+ });
-+ const container=document.createElement('div');document.body.append(container);preview=new CommunityPreview(container);preview.active=true;await preview.refresh();
-+ const card=container.querySelector('.communityPreviewCard')!;expect(card.tagName).toBe('ARTICLE');expect(card.querySelector('a button')).toBeNull();expect(card.querySelector('.communityReactionCount')?.textContent,card.outerHTML).toBe('1');
-+ card.querySelector<HTMLButtonElement>('.communityReaction')!.click();await vi.waitFor(()=>expect(card.querySelector('[aria-pressed="true"]')).not.toBeNull());
-+ preview.browsing=true;reactions=[{emoji:'😎',count:3,mine:false,people:[{name:'Other'}]}];await preview.refreshReactions();expect(card.querySelector('.communityReactionCount')?.textContent).toBe('3');
-+});
+-- 
+2.43.0
+

@@ -1,6 +1,6 @@
 # Local upgrade verification
 
-The owner approved this upgrade for publication and TrueNAS deployment on 2026-10-13 as v0.1.0-alpha.4.
+The owner approved this upgrade for publication and TrueNAS deployment on 2026-10-13 as v0.1.0-alpha.5.
 
 Implemented: homepage reactions/counts and direct reaction changes; playback-aware Messages placement; administrator-only catalogue IDs; partial-show In progress status; confirmed Available status and 72-hour soft cleanup; private optional background library connection with authenticated requester-only fallback.
 
