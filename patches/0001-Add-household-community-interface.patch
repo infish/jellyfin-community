@@ -1,4 +1,4 @@
-From f6152c4b6df15df90631411b407c28396e81affb Mon Sep 17 00:00:00 2001
+From baef893ad9e935b49dd1257f6bd05a83bfc58e4a Mon Sep 17 00:00:00 2001
 From: Jellyfin Household Maintainer <maintainer@localhost>
 Date: Mon, 14 Sep 2026 16:12:25 +0200
 Subject: [PATCH] Add household community interface
@@ -7,32 +7,43 @@ Subject: [PATCH] Add household community interface
  package-lock.json                             | 2912 ++++++++++-------
  package.json                                  |   13 +-
  src/apps/legacy/controllers/community.html    |   19 +
- src/apps/legacy/controllers/community.js      |   86 +
- src/apps/legacy/controllers/hometab.js        |   11 +
- src/apps/legacy/controllers/requestmedia.html |    9 +
- src/apps/legacy/controllers/requestmedia.js   |   88 +
+ src/apps/legacy/controllers/community.js      |  131 +
+ src/apps/legacy/controllers/hometab.js        |   19 +
+ src/apps/legacy/controllers/requestmedia.html |   13 +
+ src/apps/legacy/controllers/requestmedia.js   |  142 +
  src/apps/legacy/routes/legacyRoutes/user.ts   |   12 +
  .../components/drawers/MainDrawerContent.tsx  |   18 +
  src/apps/modern/routes/legacyRoutes/user.ts   |   12 +
- src/scripts/community/api.js                  |   58 +
- src/scripts/community/community.scss          |   83 +
+ src/assets/img/tmdb-logo.svg                  |  Bin 0 -> 2065 bytes
+ src/scripts/community/api.js                  |   67 +
+ src/scripts/community/chat.js                 |  263 ++
+ src/scripts/community/chat.test.ts            |   69 +
+ src/scripts/community/community.scss          |  188 ++
  src/scripts/community/emojiDisplay.js         |   30 +
  src/scripts/community/emojiDisplay.test.ts    |   13 +
- src/scripts/community/emojiPicker.js          |   82 +
+ src/scripts/community/emojiPicker.js          |   83 +
  src/scripts/community/emojiPicker.test.ts     |   29 +
  src/scripts/community/holdAdvance.js          |   28 +
  src/scripts/community/holdAdvance.test.ts     |   29 +
- src/scripts/community/online.js               |  134 +
- src/scripts/community/online.test.ts          |   71 +
- src/scripts/community/presence.js             |  103 +
- src/scripts/community/preview.js              |  167 +
- src/scripts/libraryMenu.js                    |    9 +
- 23 files changed, 2832 insertions(+), 1184 deletions(-)
+ src/scripts/community/online.js               |  142 +
+ src/scripts/community/online.test.ts          |   72 +
+ src/scripts/community/presence.js             |  112 +
+ src/scripts/community/presence.test.ts        |   25 +
+ src/scripts/community/preview.js              |  168 +
+ src/scripts/community/requestBoard.js         |   69 +
+ src/scripts/community/requestBoard.test.ts    |   71 +
+ src/scripts/community/socialWidgets.js        |  104 +
+ src/scripts/community/socialWidgets.test.ts   |    9 +
+ src/scripts/libraryMenu.js                    |   12 +
+ 31 files changed, 3690 insertions(+), 1184 deletions(-)
  create mode 100644 src/apps/legacy/controllers/community.html
  create mode 100644 src/apps/legacy/controllers/community.js
  create mode 100644 src/apps/legacy/controllers/requestmedia.html
  create mode 100644 src/apps/legacy/controllers/requestmedia.js
+ create mode 100644 src/assets/img/tmdb-logo.svg
  create mode 100644 src/scripts/community/api.js
+ create mode 100644 src/scripts/community/chat.js
+ create mode 100644 src/scripts/community/chat.test.ts
  create mode 100644 src/scripts/community/community.scss
  create mode 100644 src/scripts/community/emojiDisplay.js
  create mode 100644 src/scripts/community/emojiDisplay.test.ts
@@ -43,7 +54,12 @@ Subject: [PATCH] Add household community interface
  create mode 100644 src/scripts/community/online.js
  create mode 100644 src/scripts/community/online.test.ts
  create mode 100644 src/scripts/community/presence.js
+ create mode 100644 src/scripts/community/presence.test.ts
  create mode 100644 src/scripts/community/preview.js
+ create mode 100644 src/scripts/community/requestBoard.js
+ create mode 100644 src/scripts/community/requestBoard.test.ts
+ create mode 100644 src/scripts/community/socialWidgets.js
+ create mode 100644 src/scripts/community/socialWidgets.test.ts
 
 diff --git a/package-lock.json b/package-lock.json
 index c8a45f3..1784af4 100644
@@ -5120,14 +5136,15 @@ index 0000000..7a0ea69
 +</div>
 diff --git a/src/apps/legacy/controllers/community.js b/src/apps/legacy/controllers/community.js
 new file mode 100644
-index 0000000..e7f3672
+index 0000000..17757fd
 --- /dev/null
 +++ b/src/apps/legacy/controllers/community.js
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,131 @@
 +import { communityFetch, messageAvatar } from 'scripts/community/api';
 +import { renderEmojiText } from 'scripts/community/emojiDisplay';
 +import { OnlinePanel } from 'scripts/community/online';
 +import { EmojiPicker } from 'scripts/community/emojiPicker';
++import { action, onlineDot, quotePreview, reactionBar, visibleMessageIds } from 'scripts/community/socialWidgets';
 +import 'scripts/community/community.scss';
 +
 +/* eslint-disable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals */
@@ -5137,10 +5154,15 @@ index 0000000..e7f3672
 +        this.view = view;
 +        this.cursor = null;
 +        this.me = null;
++        this.items = new Map();
++        this.reply = null;
++        this.replyHost = document.createElement('div');
++        this.replyHost.className='communityBoardReply';
++        view.querySelector('.communityComposer').prepend(this.replyHost);
 +        this.emojiPicker = new EmojiPicker(view, message => this.setError(message));
 +        view.addEventListener('viewhide', () => this.emojiPicker.close());
 +        this.online = new OnlinePanel(view.querySelector('.communityOnlinePanel'));
-+        view.addEventListener('viewhide', () => this.online.pause());
++        view.addEventListener('viewhide', () => { this.online.pause(); clearInterval(this.refreshTimer); this.active=false; });
 +        view.addEventListener('viewshow', () => {
 +            this.syncPreference = event => { view.querySelector('.presencePreference').checked = event.detail.visible; };
 +            document.addEventListener('communitypresencechange', this.syncPreference);
@@ -5161,6 +5183,9 @@ index 0000000..e7f3672
 +    }
 +    setError(message = '') { this.view.querySelector('.communityError').textContent = message; }
 +    async onResume() {
++        this.active=true;
++        clearInterval(this.refreshTimer);
++        this.refreshTimer=setInterval(()=>void this.refreshMessages(),5000);
 +        this.online.resume();
 +        try {
 +            this.me = await communityFetch('/me');
@@ -5174,55 +5199,92 @@ index 0000000..e7f3672
 +    renderMessage(message) {
 +        const li = document.createElement('li');
 +        li.className = 'communityMessage';
++        li.dataset.messageId=message.id;
 +        const header = document.createElement('div');
 +        header.className = 'communityMessageHeader';
 +        const author = document.createElement('strong'); author.textContent = message.displayName;
 +        const time = document.createElement('time'); time.dateTime = new Date(message.createdAt).toISOString(); time.textContent = new Date(message.createdAt).toLocaleString();
 +        const body = document.createElement('p'); body.className = 'communityMessageBody'; renderEmojiText(body, message.body);
-+        header.append(messageAvatar(message), author, time);
++        header.append(messageAvatar(message), author, onlineDot(message.authorId), time);
 +        if (message.authorId === this.me?.id || this.me?.isAdmin) {
 +            const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'communityMessageDelete'; remove.textContent = 'Delete';
 +            remove.addEventListener('click', async () => { try { await communityFetch(`/messages/${message.id}`, { method: 'DELETE' }); li.remove(); } catch (error) { this.setError(error.message); } });
 +            header.append(remove);
 +        }
-+        li.append(header, body);
++        li.append(header);
++        if (message.reply) li.append(quotePreview(message.reply,id=>void this.jump(id)));
++        li.append(body,action('Reply',()=> { this.reply=message; this.renderReply(); this.view.querySelector('textarea').focus(); }),reactionBar(message,'board',text=>this.setError(text)));
 +        return li;
 +    }
 +    async load(reset) {
 +        try {
 +            const data = await communityFetch(`/messages${!reset && this.cursor ? `?cursor=${encodeURIComponent(this.cursor)}` : ''}`);
 +            const list = this.view.querySelector('.communityMessages');
-+            if (reset) list.innerHTML = '';
-+            list.append(...data.items.map(item => this.renderMessage(item)));
++            if (reset) { list.innerHTML = ''; this.items.clear(); }
++            data.items.forEach(item=> { if (!this.items.has(item.id)) list.append(this.renderMessage(item)); this.items.set(item.id,item); });
 +            this.cursor = data.nextCursor;
 +            this.view.querySelector('.communityLoadMore').classList.toggle('hide', !this.cursor);
 +            this.setError(data.items.length || list.children.length ? '' : 'No messages yet.');
 +        } catch (error) { this.setError(error.message); }
 +    }
 +    async post() {
++        if (this.posting) return;
++        this.posting=true;
 +        const input = this.view.querySelector('textarea');
 +        try {
-+            await communityFetch('/messages', { method: 'POST', body: JSON.stringify({ body: input.value }) });
-+            input.value = ''; input.dispatchEvent(new Event('input')); await this.load(true);
++            await communityFetch('/messages', { method: 'POST', body: JSON.stringify({ body: input.value, replyTo:this.reply?.id || null }) });
++            input.value = ''; this.reply=null; this.renderReply(); input.dispatchEvent(new Event('input')); await this.load(true);
++        } catch (error) { this.setError(error.message); } finally { this.posting=false; }
++    }
++    renderReply() {
++        this.replyHost.replaceChildren();
++        if (this.reply) this.replyHost.append(quotePreview(this.reply,id=>void this.jump(id)),action('×',()=> { this.reply=null; this.renderReply(); }));
++    }
++    async jump(id) {
++        try {
++            let row=this.view.querySelector(`[data-message-id="${id}"]`);
++            if (!row) {
++                const m=await communityFetch(`/messages/${id}`); this.items.set(m.id,m);
++                row=this.renderMessage(m); this.view.querySelector('.communityMessages').append(row);
++            }
++            row.scrollIntoView({block:'center',behavior:'smooth'}); row.classList.add('communityMessageHighlight');
++            setTimeout(()=>row.classList.remove('communityMessageHighlight'),2000);
 +        } catch (error) { this.setError(error.message); }
 +    }
-+    destroy() { this.emojiPicker.destroy(); this.online.pause(); this.view.querySelector('.communityComposer')?.removeEventListener('submit', this.submit); this.view.querySelector('textarea')?.removeEventListener('input', this.input); this.view = null; }
++    async refreshMessages() {
++        if (!this.active || this.refreshing || document.visibilityState!=='visible' || !this.me) return;
++        this.refreshing=true;
++        try {
++            const [latest,snapshot]=await Promise.all([communityFetch('/messages'),communityFetch('/messages/snapshot',{method:'POST',body:JSON.stringify({ids:visibleMessageIds(this.view.querySelector('.communityMessages'))})})]);
++            if (!this.active || !this.view) return;
++            const list=this.view.querySelector('.communityMessages');
++            for (const m of snapshot.items) {
++                const old=this.items.get(m.id); const row=list.querySelector(`[data-message-id="${m.id}"]`);
++                if (m.deleted) { row?.remove(); this.items.delete(m.id); }
++                else if (JSON.stringify(old)!==JSON.stringify(m)) { row?.replaceWith(this.renderMessage(m)); this.items.set(m.id,m); }
++            }
++            for (const m of [...latest.items].reverse()) if (!this.items.has(m.id)) { list.prepend(this.renderMessage(m)); this.items.set(m.id,m); }
++            this.setError(list.children.length ? '' : 'No messages yet.');
++        } catch (error) { this.setError(error.message); } finally { this.refreshing=false; }
++    }
++    destroy() { clearInterval(this.refreshTimer); this.active=false; this.emojiPicker.destroy(); this.online.pause(); this.view.querySelector('.communityComposer')?.removeEventListener('submit', this.submit); this.view.querySelector('textarea')?.removeEventListener('input', this.input); this.view = null; }
 +}
 +
 +/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals */
 diff --git a/src/apps/legacy/controllers/hometab.js b/src/apps/legacy/controllers/hometab.js
-index 4f73a82..3d086a6 100644
+index 4f73a82..3a59a51 100644
 --- a/src/apps/legacy/controllers/hometab.js
 +++ b/src/apps/legacy/controllers/hometab.js
-@@ -2,6 +2,7 @@ import * as userSettings from 'scripts/settings/userSettings';
+@@ -2,6 +2,8 @@ import * as userSettings from 'scripts/settings/userSettings';
  import focusManager from 'components/focusManager';
  import homeSections from 'components/homesections/homesections';
  import { ServerConnections } from 'lib/jellyfin-apiclient';
 +import { CommunityPreview } from 'scripts/community/preview';
++import { RequestBoardPreview } from 'scripts/community/requestBoard';
  
  import 'elements/emby-itemscontainer/emby-itemscontainer';
  
-@@ -11,6 +12,10 @@ class HomeTab {
+@@ -11,6 +13,13 @@ class HomeTab {
          this.params = params;
          this.apiClient = ServerConnections.currentApiClient();
          this.sectionsContainer = view.querySelector('.sections');
@@ -5230,30 +5292,36 @@ index 4f73a82..3d086a6 100644
 +        this.communityContainer.className = 'verticalSection communityPreview';
 +        this.sectionsContainer.before(this.communityContainer);
 +        this.communityPreview = new CommunityPreview(this.communityContainer);
++        this.requestContainer=document.createElement('section');
++        this.communityContainer.after(this.requestContainer);
++        this.requestPreview=new RequestBoardPreview(this.requestContainer);
          view.querySelector('.sections').addEventListener('settingschange', onHomeScreenSettingsChanged.bind(this));
      }
      onResume(options) {
-@@ -18,6 +23,7 @@ class HomeTab {
+@@ -18,6 +27,8 @@ class HomeTab {
              const sectionsContainer = this.sectionsContainer;
  
              if (sectionsContainer) {
 +                this.communityPreview.resume();
++                this.requestPreview.resume();
                  return homeSections.resume(sectionsContainer, options);
              }
  
-@@ -31,6 +37,7 @@ class HomeTab {
+@@ -31,6 +42,8 @@ class HomeTab {
          return apiClient.getCurrentUser()
              .then(user => homeSections.loadSections(view.querySelector('.sections'), apiClient, user, userSettings))
              .then(() => {
 +                this.communityPreview.resume();
++                this.requestPreview.resume();
                  if (options.autoFocus) {
                      focusManager.autoFocus(view);
                  }
-@@ -44,12 +51,16 @@ class HomeTab {
+@@ -44,12 +57,18 @@ class HomeTab {
          if (sectionsContainer) {
              homeSections.pause(sectionsContainer);
          }
 +        this.communityPreview.pause();
++        this.requestPreview.pause();
      }
      destroy() {
          this.view = null;
@@ -5261,6 +5329,7 @@ index 4f73a82..3d086a6 100644
          this.apiClient = null;
          this.destroyHomeSections();
 +        this.communityPreview.destroy();
++        this.requestPreview.destroy();
 +        this.communityPreview = null;
 +        this.communityContainer = null;
          this.sectionsContainer = null;
@@ -5268,113 +5337,171 @@ index 4f73a82..3d086a6 100644
      destroyHomeSections() {
 diff --git a/src/apps/legacy/controllers/requestmedia.html b/src/apps/legacy/controllers/requestmedia.html
 new file mode 100644
-index 0000000..45cc074
+index 0000000..7726d6e
 --- /dev/null
 +++ b/src/apps/legacy/controllers/requestmedia.html
-@@ -0,0 +1,9 @@
-+<div id="requestMediaPage" data-role="page" class="page libraryPage communityPage" data-title="Request media">
-+    <h1>Request media</h1>
-+    <p class="communityMuted">Search the external catalog, select the exact title, and confirm your request.</p>
-+    <form class="requestSearchBar"><label class="visually-hidden" for="requestQuery">Title</label><input id="requestQuery" type="search" minlength="2" maxlength="100" autocomplete="off" placeholder="Movie or series title"><button is="emby-button" type="submit" class="raised button-submit emby-button">Search</button></form>
+@@ -0,0 +1,13 @@
++<div id="requestMediaPage" data-role="page" class="page libraryPage communityPage requestBoardPage" data-title="Requests">
++    <div class="requestBoardPageHeading"><div><h1>Requests</h1><p class="communityMuted">Choose the correct movie or show. We check your library before adding it.</p></div><button type="button" class="communityAction requestAddButton">+ Add request</button></div>
 +    <p class="communityError" role="status"></p>
-+    <div class="requestResults"></div>
-+    <section class="requestSelection hide" aria-live="polite"><h2></h2><p></p><div class="requestSeasons"></div><button is="emby-button" type="button" class="requestConfirm raised button-submit emby-button">Confirm request</button></section>
-+    <section><h2>My requests</h2><div class="myRequests"></div></section>
++    <section class="requestSearchSection" aria-label="Add a request">
++        <h2>Add a request</h2><p class="requestCatalogNotice communityMuted" role="status"></p>
++        <form class="requestSearchBar"><label class="visually-hidden" for="requestQuery">Title</label><input id="requestQuery" type="search" minlength="2" maxlength="100" autocomplete="off" placeholder="Movie or show title"><select class="requestMediaType" aria-label="Search movies or shows"><option value="movie">Movies</option><option value="tv">Shows</option></select><button type="submit" class="communityAction requestSearchSubmit">Search</button></form>
++        <div class="requestResults"></div><button type="button" class="communityAction requestSearchMore" hidden>More matches</button>
++        <section class="requestSelection" aria-live="polite" hidden><h2></h2><p class="requestLibraryResult"></p><div class="requestLibraryMatches"></div><div class="requestSeasons"></div><label hidden><input type="checkbox" class="requestManualCheck"> I checked these possible matches; this title is not already available.</label><button type="button" class="communityAction requestConfirm" disabled>Add request</button></section>
++    </section>
++    <section class="requestBoardListSection"><div class="requestBoardFilters"><h2>Request board</h2><select class="requestBoardFilter" aria-label="Filter request board"><option value="all">Movies and shows</option><option value="movie">Movies</option><option value="tv">Shows</option></select><select class="requestBoardState" aria-label="Request status"><option value="all">All statuses</option><option value="outstanding">Outstanding</option><option value="requested">Requested</option><option value="in_progress">In progress</option><option value="available">Available</option><option value="declined">Declined</option></select><label><input type="checkbox" class="requestBoardMine"> My requests</label></div><div class="requestBoardCards"></div><p class="requestBoardEmpty communityMuted"></p></section>
++    <form class="requestTmdbSetup" hidden><h2>Connect title search · Admin only</h2><p>Get a developer API Read Access Token from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">TMDB API settings</a>. Saved privately on this server.</p><label for="requestTmdbToken">TMDB API Read Access Token</label><input id="requestTmdbToken" type="password" autocomplete="off" spellcheck="false" maxlength="2048" required><button type="submit" class="communityAction requestTmdbSave">Save &amp; connect</button></form>
++    <section class="requestCredits"><h2>Credits</h2><a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer"><img src="../../../assets/img/tmdb-logo.svg" alt="The Movie Database (TMDB)"></a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></section>
 +</div>
 diff --git a/src/apps/legacy/controllers/requestmedia.js b/src/apps/legacy/controllers/requestmedia.js
 new file mode 100644
-index 0000000..a7cb709
+index 0000000..4e8ab0b
 --- /dev/null
 +++ b/src/apps/legacy/controllers/requestmedia.js
-@@ -0,0 +1,88 @@
-+import { communityFetch, createId } from 'scripts/community/api';
+@@ -0,0 +1,142 @@
++import { communityFetch } from 'scripts/community/api';
++import { action } from 'scripts/community/socialWidgets';
++import { requestCard, requestPoster } from 'scripts/community/requestBoard';
 +import 'scripts/community/community.scss';
-+
-+/* eslint-disable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals, sonarjs/no-unenclosed-multiline-block */
 +
 +export default class RequestMediaPage {
 +    constructor(view) {
-+        this.view = view;
-+        this.selected = null;
-+        this.show = () => void this.onResume();
-+        view.addEventListener('viewshow', this.show);
-+        this.searchTimer = null;
-+        this.searchController = null;
-+        this.searchHandler = event => { event.preventDefault(); void this.search(); };
-+        this.typedSearch = () => {
-+            clearTimeout(this.searchTimer);
-+            if (view.querySelector('#requestQuery').value.trim().length >= 2) this.searchTimer = setTimeout(() => void this.search(), 300);
++        this.view=view; this.selected=null; this.items=[]; this.page=1; this.revision=0;
++        this.show=()=>void this.onResume(); this.hide=()=> {this.active=false; clearInterval(this.timer); clearTimeout(this.searchTimer); this.searchController?.abort(); this.revision++; this.view.querySelector('#requestTmdbToken').value='';};
++        view.addEventListener('viewshow',this.show); view.addEventListener('viewhide',this.hide);
++        this.submitSearch=event=> {event.preventDefault(); void this.search(false);};
++        this.typedSearch=()=> {
++            this.revision++; this.selected=null; view.querySelector('.requestSelection').hidden=true;
++            clearTimeout(this.searchTimer); this.searchController?.abort();
++            if (view.querySelector('#requestQuery').value.trim().length>=2) this.searchTimer=setTimeout(()=>void this.search(false),300);
++            else view.querySelector('.requestResults').replaceChildren();
 +        };
-+        view.querySelector('.requestSearchBar').addEventListener('submit', this.searchHandler);
-+        view.querySelector('#requestQuery').addEventListener('input', this.typedSearch);
-+        view.querySelector('.requestConfirm').addEventListener('click', () => void this.submit());
++        view.querySelector('.requestSearchBar').addEventListener('submit',this.submitSearch);
++        view.querySelector('#requestQuery').addEventListener('input',this.typedSearch);
++        view.querySelector('.requestMediaType').addEventListener('change',this.typedSearch);
++        view.querySelector('.requestSearchMore').addEventListener('click',()=>void this.search(true));
++        view.querySelector('.requestConfirm').addEventListener('click',()=>void this.submit());
++        view.querySelector('.requestBoardFilter').addEventListener('change',()=>this.renderBoard());
++        view.querySelector('.requestBoardState').addEventListener('change',()=>this.renderBoard());
++        view.querySelector('.requestBoardMine').addEventListener('change',()=>this.renderBoard());
++        view.querySelector('.requestAddButton').addEventListener('click',()=> {view.querySelector('#requestQuery').focus(); view.querySelector('.requestSearchSection').scrollIntoView({block:'start',behavior:'smooth'});});
++        view.querySelector('.requestTmdbSetup').addEventListener('submit',event=> {event.preventDefault(); void this.connect();});
++        view.querySelector('.requestManualCheck').addEventListener('change',()=>this.updateConfirm());
 +    }
-+    error(message = '') { this.view.querySelector('.communityError').textContent = message; }
-+    async onResume() { try { await this.loadMine(); } catch (error) { this.error(error.message); } }
-+    async search() {
-+        const q = this.view.querySelector('#requestQuery').value.trim();
-+        if (q.length < 2) return;
-+        this.searchController?.abort();
-+        // The app entrypoint installs the project's AbortController polyfill for legacy targets.
-+        // eslint-disable-next-line compat/compat
-+        this.searchController = new AbortController();
-+        this.error('Searching…');
++    error(message='') {if (this.view) this.view.querySelector('.communityError').textContent=message;}
++    async onResume() {
++        const revision=++this.revision;
++        this.me=null; this.config=null; this.selected=null; this.items=[]; this.boardKey=null; this.loading=false;
++        this.view.querySelector('.requestBoardCards').replaceChildren();
++        this.view.querySelector('.requestResults').replaceChildren();
++        this.view.querySelector('.requestSelection').hidden=true;
++        this.view.querySelector('.requestSearchMore').hidden=true;
++        this.view.querySelector('.requestTmdbSetup').hidden=true;
++        this.view.querySelector('#requestTmdbToken').value='';
++        this.view.querySelector('#requestQuery').disabled=true;
++        this.view.querySelector('.requestSearchSubmit').disabled=true;
++        this.view.querySelector('.requestCatalogNotice').textContent='Checking catalogue access…';
++        this.active=true; clearInterval(this.timer); this.timer=setInterval(()=>void this.loadBoard(),15000);
 +        try {
-+            const data = await communityFetch(`/requests/search?q=${encodeURIComponent(q)}`, { signal: this.searchController.signal });
-+            const results = this.view.querySelector('.requestResults');
-+            results.innerHTML = '';
-+            results.append(...data.items.map(item => {
-+                const button = document.createElement('button'); button.type = 'button'; button.className = 'requestCard';
-+                if (item.posterUrl) {
-+                    const poster = document.createElement('img');
-+                    poster.src = item.posterUrl;
-+                    poster.alt = '';
-+                    poster.loading = 'lazy';
-+                    button.append(poster);
-+                }
-+                const title = document.createElement('strong'); title.textContent = item.title;
-+                const meta = document.createElement('div'); meta.textContent = `${item.mediaType === 'tv' ? 'Series' : 'Movie'}${item.year ? ` · ${item.year}` : ''}`;
-+                button.append(title, meta); button.addEventListener('click', () => void this.select(item)); return button;
-+            }));
-+            this.error(data.items.length ? '' : 'No matching movies or series.');
-+        } catch (error) { if (error.name !== 'AbortError') this.error(error.message); }
++            const [me,config]=await Promise.all([communityFetch('/me'),communityFetch('/request-board/config')]);
++            if (!this.active || revision!==this.revision) return; this.me=me; this.config=config; this.setupState(); await this.loadBoard();
++        } catch(error) {if (revision===this.revision) {this.view.querySelector('.requestCatalogNotice').textContent='Catalogue access unavailable for this session.'; this.error(error.message);}}
++    }
++    setupState() {
++        this.view.querySelector('.requestTmdbSetup').hidden=!this.config.isAdmin;
++        this.view.querySelector('.requestCatalogNotice').textContent=this.config.catalogReady ? '' : this.config.setupError || 'Title search is waiting for the administrator to connect TMDB. Existing requests remain visible.';
++        this.view.querySelector('#requestQuery').disabled=!this.config.catalogReady;
++        this.view.querySelector('.requestSearchSubmit').disabled=!this.config.catalogReady;
++    }
++    async connect() {
++        const revision=this.revision;
++        const input=this.view.querySelector('#requestTmdbToken'),button=this.view.querySelector('.requestTmdbSave'); button.disabled=true;
++        try {
++            await communityFetch('/request-board/config',{method:'PUT',body:JSON.stringify({token:input.value})});
++            if (!this.active || revision!==this.revision) return;
++            input.value=''; this.config.catalogReady=true; this.setupState(); this.error('TMDB connected. Search for a movie or show.');
++        } catch(error) {this.error(error.message);} finally {button.disabled=false;}
++    }
++    async search(more) {
++        if (!this.config?.catalogReady) return;
++        const q=this.view.querySelector('#requestQuery').value.trim(); if (q.length<2) return;
++        this.searchController?.abort(); this.searchController=new AbortController();
++        const revision=++this.revision,type=this.view.querySelector('.requestMediaType').value,page=more ? this.page+1 : 1;
++        this.selected=null; this.view.querySelector('.requestSelection').hidden=true; this.error('Searching…');
++        try {
++            const data=await communityFetch(`/catalog/search?type=${type}&q=${encodeURIComponent(q)}&page=${page}`,{signal:this.searchController.signal});
++            if (!this.active || revision!==this.revision) return;
++            const results=this.view.querySelector('.requestResults'); if (!more) results.replaceChildren();
++            for (const item of data.items) {
++                const button=action('',()=>void this.select(item),'requestSearchResult');
++                const poster=requestPoster(item); if (poster) button.append(poster);
++                const text=document.createElement('span'); const title=document.createElement('strong'); title.textContent=`${item.title}${item.year ? ` (${item.year})` : ''}`;
++                const original=document.createElement('small'); original.textContent=item.originalTitle!==item.title ? item.originalTitle : '';
++                const overview=document.createElement('span'); overview.textContent=item.overview.slice(0,180); text.append(title,original,overview); button.append(text); results.append(button);
++            }
++            this.page=page; this.view.querySelector('.requestSearchMore').hidden=page>=data.totalPages;
++            this.error(data.items.length ? '' : 'No matching titles.');
++        } catch(error) {if (error.name!=='AbortError' && revision===this.revision) this.error(error.message);}
 +    }
 +    async select(item) {
++        const revision=++this.revision; this.selected=null; const section=this.view.querySelector('.requestSelection'); section.hidden=true;
++        this.error('Checking your Jellyfin library…');
 +        try {
-+            this.selected = await communityFetch(`/requests/details/${item.mediaType}/${item.id}`);
-+            const section = this.view.querySelector('.requestSelection'); section.classList.remove('hide');
-+            section.querySelector('h2').textContent = this.selected.title;
-+            section.querySelector('p').textContent = `${this.selected.mediaType === 'tv' ? 'Series' : 'Movie'}${this.selected.year ? ` · ${this.selected.year}` : ''}`;
-+            const seasons = section.querySelector('.requestSeasons'); seasons.innerHTML = '';
-+            if (this.selected.mediaType === 'tv') {
-+                this.selected.seasons.forEach(season => {
-+                    const label = document.createElement('label'); const box = document.createElement('input'); box.type = 'checkbox'; box.value = season.seasonNumber;
-+                    label.append(box, document.createTextNode(` ${season.name || `Season ${season.seasonNumber}`}`)); seasons.append(label);
-+                });
++            const data=await communityFetch(`/catalog/${item.mediaType}/${item.mediaId}/check`);
++            if (!this.active || revision!==this.revision) return;
++            this.selected=data; section.hidden=false;
++            section.querySelector('h2').textContent=`${data.title.title}${data.title.year ? ` (${data.title.year})` : ''}`;
++            const status=section.querySelector('.requestLibraryResult');
++            status.textContent={available:'Already available in your library. No request is needed.',partial:'Some episodes are already available. Select the seasons still needed.',not_found:'Not found in your library. You can add a request.',needs_check:'There is a possible library match without a matching catalogue ID. Check it before requesting.'}[data.library.state];
++            const matches=section.querySelector('.requestLibraryMatches'); matches.replaceChildren();
++            for (const match of data.library.matches) {const link=document.createElement('a'); link.href=`#/details?id=${encodeURIComponent(match.id)}`; link.textContent=`Open ${match.name}${match.year ? ` (${match.year})` : ''} in Jellyfin`; matches.append(link);}
++            const seasons=section.querySelector('.requestSeasons'); seasons.replaceChildren();
++            for (const season of data.library.seasons) {
++                const label=document.createElement('label'),box=document.createElement('input'); box.type='checkbox'; box.value=String(season.number);
++                box.disabled=season.state==='available'; box.checked=!box.disabled;
++                const suffix=season.state==='available' ? 'Already available' : season.present ? `${season.present} of ${season.total} episodes available` : 'Not available';
++                label.append(box,document.createTextNode(` ${season.name} — ${suffix}`)); seasons.append(label); box.addEventListener('change',()=>this.updateConfirm());
 +            }
-+            section.querySelector('.requestConfirm').focus();
-+        } catch (error) { this.error(error.message); }
++            const manual=section.querySelector('.requestManualCheck'); manual.checked=false; manual.closest('label').hidden=data.library.state!=='needs_check';
++            this.updateConfirm(); this.error(); section.scrollIntoView({block:'nearest',behavior:'smooth'});
++        } catch(error) {if (revision===this.revision) this.error(`Library check failed: ${error.message}. No request was added.`);}
++    }
++    updateConfirm() {
++        if (!this.selected) return;
++        const {title,library}=this.selected;
++        const button=this.view.querySelector('.requestConfirm');
++        button.disabled=library.state==='available' || (library.state==='needs_check' && !this.view.querySelector('.requestManualCheck').checked) || (title.mediaType==='tv' && !this.view.querySelector('.requestSeasons input:checked:not(:disabled)'));
++        button.textContent=library.state==='available' ? 'Already available' : title.mediaType==='tv' ? 'Request selected seasons' : 'Add request';
 +    }
 +    async submit() {
-+        if (!this.selected) return;
-+        const seasons = [...this.view.querySelectorAll('.requestSeasons input:checked')].map(x => Number(x.value));
++        if (!this.selected || this.submitting) return;
++        this.submitting=true; const button=this.view.querySelector('.requestConfirm'); button.disabled=true;
 +        try {
-+            const data = await communityFetch('/requests', { method: 'POST', body: JSON.stringify({ mediaType: this.selected.mediaType, mediaId: this.selected.id, seasons, idempotencyKey: createId() }) });
-+            this.error(data.state); await this.loadMine();
-+        } catch (error) { this.error(error.message); }
++            const title=this.selected.title,seasons=[...this.view.querySelectorAll('.requestSeasons input:checked:not(:disabled)')].map(input=>Number(input.value));
++            const result=await communityFetch('/request-board',{method:'POST',body:JSON.stringify({mediaType:title.mediaType,mediaId:title.mediaId,seasons,manualChecked:this.view.querySelector('.requestManualCheck').checked})});
++            this.selected=null; this.view.querySelector('.requestSelection').hidden=true;
++            this.error(result.existing ? 'Your request is already on the board; any additional seasons were included.' : 'Your request was added to the board.'); await this.loadBoard();
++        } catch(error) {this.error(error.message); this.updateConfirm();} finally {this.submitting=false;}
 +    }
-+    async loadMine() {
-+        const data = await communityFetch('/requests/mine');
-+        const target = this.view.querySelector('.myRequests');
-+        target.innerHTML = '';
-+        target.append(...data.items.map(item => { const row = document.createElement('p'); row.textContent = `${item.title || `${item.type} request`} — ${this.status(item.status, item.mediaStatus)}`; return row; }));
-+        if (!data.items.length) target.textContent = 'No requests yet.';
++    async loadBoard() {
++        if (!this.active || this.loading || document.visibilityState!=='visible') return;
++        this.loading=true;
++        const revision=this.revision;
++        try {const data=await communityFetch('/request-board'); if (!this.active || revision!==this.revision) return;
++            const key=JSON.stringify(data.items); if (key!==this.boardKey) {this.items=data.items; this.boardKey=key; this.renderBoard();}
++        } catch(error) {this.error(error.message);} finally {this.loading=false;}
 +    }
-+    status(request, media) { if (request === 1) return 'Awaiting approval'; if (request === 3) return 'Declined'; if (request === 4) return 'Request failed'; if (media === 5) return 'Available status reported by Seerr; Jellyfin visibility check pending'; return 'Approved; awaiting availability'; }
-+    destroy() { clearTimeout(this.searchTimer); this.searchController?.abort(); this.view.querySelector('.requestSearchBar')?.removeEventListener('submit', this.searchHandler); this.view.querySelector('#requestQuery')?.removeEventListener('input', this.typedSearch); this.view = null; }
++    renderBoard() {
++        const type=this.view.querySelector('.requestBoardFilter').value,mine=this.view.querySelector('.requestBoardMine').checked;
++        const state=this.view.querySelector('.requestBoardState').value;
++        const host=this.view.querySelector('.requestBoardCards'); host.replaceChildren();
++        const items=this.items.filter(item=>type==='all' || item.mediaType===type).map(item=>({...item,requests:item.requests.filter(r=>(!mine || r.authorId===this.me?.id) && (state==='all' || (state==='outstanding' ? ['requested','in_progress'].includes(r.status) : r.status===state)))})).filter(item=>item.requests.length);
++        host.append(...items.map(item=>requestCard(item,this.me,()=>this.loadBoard(),text=>this.error(text))));
++        this.view.querySelector('.requestBoardEmpty').textContent=items.length ? '' : 'No requests here yet.';
++    }
++    destroy() {this.hide(); this.view.removeEventListener('viewshow',this.show); this.view.removeEventListener('viewhide',this.hide); this.view.querySelector('.requestSearchBar').removeEventListener('submit',this.submitSearch); this.view.querySelector('#requestQuery').removeEventListener('input',this.typedSearch); this.view=null;}
 +}
-+
-+/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals, sonarjs/no-unenclosed-multiline-block */
 diff --git a/src/apps/legacy/routes/legacyRoutes/user.ts b/src/apps/legacy/routes/legacyRoutes/user.ts
 index 612572a..d2e6c82 100644
 --- a/src/apps/legacy/routes/legacyRoutes/user.ts
@@ -5399,7 +5526,7 @@ index 612572a..d2e6c82 100644
          path: 'home',
          pageProps: {
 diff --git a/src/apps/modern/components/drawers/MainDrawerContent.tsx b/src/apps/modern/components/drawers/MainDrawerContent.tsx
-index 3c4f1a0..79b8571 100644
+index 3c4f1a0..6c3dbb8 100644
 --- a/src/apps/modern/components/drawers/MainDrawerContent.tsx
 +++ b/src/apps/modern/components/drawers/MainDrawerContent.tsx
 @@ -1,5 +1,7 @@
@@ -5427,7 +5554,7 @@ index 3c4f1a0..79b8571 100644
 +                        <ListItemIcon>
 +                            <AddToQueue />
 +                        </ListItemIcon>
-+                        <ListItemText primary='Request media' />
++                        <ListItemText primary='Requests' />
 +                    </ListItemLink>
 +                </ListItem>
              </List>
@@ -5456,17 +5583,47 @@ index 2dd81a4..de1f6a6 100644
      }, {
          path: 'queue',
          pageProps: {
+diff --git a/src/assets/img/tmdb-logo.svg b/src/assets/img/tmdb-logo.svg
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b21ded3294d633847bfa873193a6929e3146ec6
+GIT binary patch
+literal 2065
+zcmZ`)$&TYj4E+^Bb4h>_U5jc_$8Ny6#D{L=5R4DL1RA&6GUBCSX?j7Bf6rr4MrJxa
+zF#KSXtVi;ZCC!KDUGaK6oQ6f&kK@zLZ1(c<LNAWam)*>2t!IcRCFJJyus{9vQJ`s>
+zW|qBW@x1R|em%b~N?qu}Mn|<RoF{L~+xbKHINZ*M@$Jyv()KV^=I_V-;c)Zya`@>J
+z$h-DZ?Jn)ZzB`RS|MJg#CZTh2{Wf`u{llVs7hM)_W>K0*F`!zzC?zw@_&u4g%%4yD
+z5&eE0y2~F=?Y8^<^m*t|-7ub?iu2>+(2c0REck!5Js-}OMfs`G+paa`?0pz{B>XPY
+zZNGHe=6{jqU6|HiT<1A#_I-OWh)&~vgigx=^%QPClfUy_ZvU=*>n?xVvUq66wmP-P
+zZc%1i!8(5%W2%p$45FUeu`jlVc7Pap7+_nJ_ogwFyu!>}?1Q6b3H?G;f?DxM)MZob
+z^+$g1DSD;*>IVcS)@0I;3BE02b8j>mE~vJBq_hsy*p*Fdz0%M4y<+#~XcL0;st)T!
+z*7s!YP=wBn)P1;%nw*+EYv#&SdKCiI{!qcAtRvG`d=NdZ988=0)Q~}`wl{`i>m25-
+z1X%|IMvXR<N!aiS#SvIDm%S*XQ6{7KYVuC;oyaEy#AEmrSE&p-18>IctKhRLl1ILP
+zUNVTMCYP8`nTBjVp|}tU2{1}!b5=p|feS~-_*L$5bA-4GGTOdwEwTkA$kAH)3gJs=
+z%>`r>yD`{@&?btkFF?$eLaLA$84RI)hUq{BDUxa^MS*OtOoak1EQZYhF@wi}$D}1F
+z0u;$OG3h|os?=f;b>M9R%CVZ$<7f}ofDOXTG*~f5N49mAlM8aZQHVmZP!;*Wl=138
+zEe3)|YH9&-IAtj!JGojw%q%F=dBoO9AbWU#QF(6835dC-nyHdqo7h5GoAm`wY4Sxu
+z2G83D5VOVFqAc80T*5{`Jcc}`&C7yJK|nk_Z?w-e6J$FIvs^LH#PKPBIH0?7OGt+O
+z5}Z<a%R$b!)?)24$cY*oK)$bVX}l~HUmxFl2-4y?!sP-u7_w8ukT`ct0$00_7#<f3
+zX);_L#^q`q#svpJ9C$Rqo|dQ-=Bw3Y$wJF7A*PYGG&3-bamzqDsti*CObl19ZLqEU
+z%~oc{_M6mWbKT~M!g;=Z#M0Y*U8iN`c{phZlSa&c_JD@?dC+iufNMXw5VocKy>=6k
+zv*G?Rzzk9dhFU=`e6EH0#Em43)aJ+A#9Udvt^Ck2c*taw6Bds|w1NqFYBu@xv%?#Q
+Jzj)K%{tLQ|+}QvC
+
+literal 0
+HcmV?d00001
+
 diff --git a/src/scripts/community/api.js b/src/scripts/community/api.js
 new file mode 100644
-index 0000000..060573d
+index 0000000..fbd4fc4
 --- /dev/null
 +++ b/src/scripts/community/api.js
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,67 @@
 +import { ServerConnections } from 'lib/jellyfin-apiclient';
 +
 +/* eslint-disable sonarjs/pseudo-random */
 +
 +const ROOT = '/api/community';
++const avatarCache = new Map();
 +
 +function token() {
 +    const value = ServerConnections.currentApiClient()?.accessToken();
@@ -5500,12 +5657,20 @@ index 0000000..060573d
 +    avatar.className = 'communityAvatar communityInitials';
 +    avatar.setAttribute('aria-hidden', 'true');
 +    avatar.textContent = name.trim().slice(0, 1).toUpperCase() || '?';
-+    fetch(`${ROOT}${path}`, {
-+        headers: { Authorization: `Bearer ${token()}` }, credentials: 'same-origin'
-+    }).then(response => {
++    const accessToken=token();
++    const key=`${accessToken}:${path}`;
++    let cached=avatarCache.get(key);
++    if (!cached || cached.expires<Date.now()) {
++        if (avatarCache.size>200) avatarCache.clear();
++        const promise=fetch(`${ROOT}${path}`, {
++            headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'same-origin'
++        }).then(response => {
 +        if (!response.ok) throw new Error('No profile picture');
 +        return response.blob();
-+    }).then(blob => {
++        });
++        cached={promise,expires:Date.now()+60_000}; avatarCache.set(key,cached);
++    }
++    cached.promise.then(blob => {
 +        if (!avatar.isConnected) return;
 +        const url = URL.createObjectURL(blob);
 +        const image = document.createElement('img');
@@ -5520,12 +5685,356 @@ index 0000000..060573d
 +}
 +
 +/* eslint-enable sonarjs/pseudo-random */
+diff --git a/src/scripts/community/chat.js b/src/scripts/community/chat.js
+new file mode 100644
+index 0000000..5e5b108
+--- /dev/null
++++ b/src/scripts/community/chat.js
+@@ -0,0 +1,263 @@
++import { communityFetch, createId, profileAvatar } from './api';
++import { EmojiPicker } from './emojiPicker';
++import { renderEmojiText } from './emojiDisplay';
++import { action, onlineDot, quotePreview, reactionBar, visibleMessageIds } from './socialWidgets';
++import './community.scss';
++
++export class ChatDock {
++    constructor() {
++        this.me = null;
++        this.conversations = [];
++        this.current = null;
++        this.items = [];
++        this.drafts = new Map();
++        this.reply = null;
++        this.cursor = null;
++        this.revision = 0;
++        this.busy = false;
++        this.sending = false;
++        this.root = document.createElement('section');
++        this.root.className = 'communityChatDock';
++        this.root.hidden = true;
++        this.root.setAttribute('aria-label', 'Private messages');
++        this.launcher = action('Messages', () => this.openInbox(), 'communityChatLauncher');
++        this.panel = document.createElement('div');
++        this.panel.className = 'communityChatPanel'; this.panel.hidden = true;
++        this.panel.innerHTML = '<header class="communityChatHeader"><div class="communityChatTitle"></div><div class="communityChatControls"></div></header><div class="communityChatInbox"></div><div class="communityChatThread" hidden><div class="communityChatSettings"></div><button type="button" class="communityChatOlder" hidden>Load older messages</button><div class="communityChatMessages" role="log" aria-label="Conversation messages"></div><form class="communityChatComposer communityComposer"><div class="communityChatReply"></div><label for="communityChatInput">Message</label><textarea id="communityChatInput" required rows="2" maxlength="1000"></textarea><div class="communityComposerFooter"><button type="button" class="communityEmojiToggle" aria-label="Choose chat emoji" aria-expanded="false"><span>🙂</span> Emoji</button><span class="communityChatLength">0 / 500</span><button type="submit" class="communityChatSend">Send</button></div><div class="communityEmojiPicker" role="group" aria-label="Choose a chat emoji" hidden></div></form></div><p class="communityChatError" role="status"></p>';
++        this.root.append(this.panel, this.launcher); document.body.append(this.root);
++        this.input = this.panel.querySelector('textarea');
++        this.picker = new EmojiPicker(this.panel, message => this.error(message));
++        this.input.addEventListener('input', () => {
++            const count = [...this.input.value].length;
++            this.panel.querySelector('.communityChatLength').textContent = `${count} / 500`;
++            this.input.setCustomValidity(count > 500 ? 'Your message is limited to 500 characters.' : '');
++            if (this.current) this.drafts.set(this.current.id, { body:this.input.value,reply:this.reply });
++            this.retry = null;
++        });
++        this.input.addEventListener('keydown', event => {
++            if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); this.panel.querySelector('form').requestSubmit(); }
++        });
++        this.panel.querySelector('form').addEventListener('submit', event => { event.preventDefault(); void this.send(); });
++        this.panel.querySelector('.communityChatOlder').addEventListener('click', () => void this.loadOlder());
++        this.openHandler = event => void this.openPerson(event.detail);
++        document.addEventListener('communityopenchat', this.openHandler);
++        this.visibilityHandler = () => { if (document.visibilityState === 'visible') void this.refresh(); };
++        document.addEventListener('visibilitychange', this.visibilityHandler);
++        this.timer = setInterval(() => void this.refresh(), 5_000);
++        this.refresh();
++    }
++    error(message = '') { this.panel.querySelector('.communityChatError').textContent = message; }
++    saveDraft() { if (this.current) this.drafts.set(this.current.id,{body:this.input.value,reply:this.reply}); }
++    reset() {
++        this.revision++; this.current = null; this.items = []; this.conversations = []; this.reply = null; this.retry = null;
++        this.drafts.clear(); this.input.value = ''; this.panel.hidden = true; this.launcher.textContent = 'Messages';
++        this.panel.querySelector('.communityChatMessages').replaceChildren(); this.panel.querySelector('.communityChatInbox').replaceChildren();
++        this.picker.close();
++    }
++    async refresh() {
++        if (this.busy || document.visibilityState !== 'visible') return;
++        this.busy = true;
++        const revision = this.revision;
++        try {
++            const me = await communityFetch('/me');
++            if (revision !== this.revision) return;
++            if (this.me && this.me.id !== me.id) this.reset();
++            this.me = me;
++            this.root.hidden = false;
++            const currentRevision = this.revision;
++            const { items } = await communityFetch('/conversations');
++            if (currentRevision !== this.revision) return;
++            this.conversations = items;
++            const unread = items.filter(c => !c.muted && !c.blocked).reduce((sum,c) => sum + c.unread,0);
++            this.launcher.textContent = unread ? `Messages · ${unread}` : 'Messages';
++            this.launcher.setAttribute('aria-label', `Messages, ${unread} unread`);
++            if (!this.panel.hidden && !this.current) this.renderInbox();
++            if (!this.panel.hidden && this.current) {
++                const conversation = items.find(c => c.id === this.current.id);
++                if (conversation) { this.current = conversation; this.renderSettings(); }
++                const data = await communityFetch(`/conversations/${this.current.id}/messages`);
++                if (currentRevision !== this.revision || this.panel.hidden || !this.current) return;
++                const merged = new Map(this.items.map(m => [m.id,m])); data.items.forEach(m => merged.set(m.id,m));
++                const latestIds=new Set(data.items.map(m=>m.id));
++                const host=this.panel.querySelector('.communityChatMessages');
++                const olderIds=visibleMessageIds(host,host).filter(id=>!latestIds.has(id));
++                if (olderIds.length) {
++                    const snapshot=await communityFetch(`/conversations/${this.current.id}/snapshot`,{method:'POST',body:JSON.stringify({ids:olderIds})});
++                    if (currentRevision!==this.revision) return;
++                    snapshot.items.forEach(m=>merged.set(m.id,m));
++                }
++                const next = [...merged.values()].sort((a,b) => a.seq-b.seq);
++                if (JSON.stringify(next) !== JSON.stringify(this.items)) { this.items = next; this.renderMessages(false); }
++                await this.clearUnread();
++            }
++            this.error();
++        } catch (error) {
++            // Hide private history if the current Jellyfin session is unavailable.
++            if (/Sign in|401|authorization|token/i.test(error.message)) { this.reset(); this.me = null; this.root.hidden=true; }
++            else if (!this.panel.hidden) this.error(error.message);
++        } finally { this.busy = false; }
++    }
++    header(title) {
++        const heading = this.panel.querySelector('.communityChatTitle'); heading.replaceChildren();
++        if (this.current) heading.append(profileAvatar(this.current.peer.name, `/conversations/${this.current.id}/avatar`));
++        const label = document.createElement('strong'); label.textContent = title; heading.append(label);
++        if (this.current) heading.append(onlineDot(this.current.peer.id));
++        const controls = this.panel.querySelector('.communityChatControls'); controls.replaceChildren();
++        if (this.current) controls.append(action('‹', () => this.openInbox()));
++        const close = action('×', () => { this.saveDraft(); this.panel.hidden = true; this.picker.close(); this.revision++; this.launcher.focus(); });
++        close.setAttribute('aria-label','Close messages'); controls.append(close);
++    }
++    openInbox() {
++        this.saveDraft(); this.revision++; this.current = null; this.panel.hidden = false;
++        this.panel.querySelector('.communityChatInbox').hidden = false;
++        this.panel.querySelector('.communityChatThread').hidden = true;
++        this.picker.close(); this.header('Messages'); this.renderInbox(); this.refresh();
++    }
++    renderInbox() {
++        const host = this.panel.querySelector('.communityChatInbox'); host.replaceChildren();
++        for (const c of this.conversations) {
++            const row = action('', () => void this.select(c), 'communityConversation');
++            row.append(profileAvatar(c.peer.name,`/conversations/${c.id}/avatar`));
++            const content = document.createElement('span'); const name = document.createElement('strong'); name.textContent = c.peer.name;
++            name.append(onlineDot(c.peer.id));
++            const preview = document.createElement('span'); renderEmojiText(preview,c.last?.body || 'Start a conversation');
++            content.append(name,preview); row.append(content);
++            if (c.unread) { const badge = document.createElement('b'); badge.textContent = String(c.unread); badge.className = 'communityUnreadBadge'; row.append(badge); }
++            if (c.muted || c.blocked) { const state = document.createElement('small'); state.textContent = c.blocked ? 'Blocked' : 'Muted'; row.append(state); }
++            host.append(row);
++        }
++        if (!this.conversations.length) { const empty = document.createElement('p'); empty.textContent = 'Choose Message beside someone in Online now to start a private chat.'; host.append(empty); }
++    }
++    async openPerson(person) {
++        try {
++            const me = await communityFetch('/me');
++            if (person.id === me.id) return;
++            if (this.me && this.me.id!==me.id) this.reset();
++            const { id } = await communityFetch('/conversations',{method:'POST',body:JSON.stringify({peerId:person.id})});
++            const { items } = await communityFetch('/conversations');
++            this.me = me; this.conversations = items;
++            await this.select(items.find(c => c.id === id));
++        } catch (error) { this.panel.hidden = false; this.error(error.message); }
++    }
++    async select(conversation) {
++        if (!conversation || this.sending) return;
++        this.saveDraft(); this.revision++; const revision = this.revision;
++        this.current = conversation; this.items = []; this.cursor = null; this.retry = null;
++        this.panel.hidden = false; this.panel.querySelector('.communityChatInbox').hidden = true;
++        this.panel.querySelector('.communityChatThread').hidden = false;
++        this.header(conversation.peer.name); this.renderSettings(); this.picker.close(); this.error();
++        const draft = this.drafts.get(conversation.id);
++        this.reply = draft?.reply || null; this.input.value = draft?.body || ''; this.input.dispatchEvent(new Event('input'));
++        this.renderReply(); this.panel.querySelector('.communityChatMessages').replaceChildren();
++        try {
++            const data = await communityFetch(`/conversations/${conversation.id}/messages`);
++            if (revision !== this.revision) return;
++            this.items = data.items; this.cursor = data.nextCursor; this.renderMessages(true); await this.clearUnread();
++            this.input.focus();
++        } catch (error) { if (revision === this.revision) this.error(error.message); }
++    }
++    renderSettings() {
++        const c = this.current; if (!c) return;
++        this.input.disabled = !c.canSend;
++        this.panel.querySelector('.communityChatSend').disabled = !c.canSend || this.sending;
++        this.panel.querySelector('.communityEmojiToggle').disabled = !c.canSend;
++        if (!c.canSend) this.picker.close();
++        if (this.renderedPermission!==c.canSend) {
++            this.renderedPermission=c.canSend;
++            if (this.items.length) this.renderMessages(false);
++        }
++        const host = this.panel.querySelector('.communityChatSettings'); host.replaceChildren();
++        const save = async (muted,blocked) => {
++            try {
++                await communityFetch(`/conversations/${c.id}/settings`,{method:'PUT',body:JSON.stringify({muted,blocked})});
++                c.muted = muted; c.blocked = blocked;
++                if (blocked) c.canSend = false;
++                this.renderSettings(); this.refresh();
++            } catch (error) { this.error(error.message); }
++        };
++        host.append(action(c.muted ? 'Unmute' : 'Mute', () => void save(!c.muted,c.blocked)),action(c.blocked ? 'Unblock' : 'Block', () => void save(c.muted,!c.blocked)));
++        if (!c.canSend) { const hint = document.createElement('span'); hint.textContent = 'Messaging is blocked'; host.append(hint); }
++    }
++    renderReply() {
++        const host = this.panel.querySelector('.communityChatReply'); host.replaceChildren();
++        if (!this.reply) return;
++        host.append(quotePreview(this.reply, id => this.jump(id)),action('×', () => { this.reply = null; this.saveDraft(); this.renderReply(); }));
++    }
++    renderMessages(bottom) {
++        const host = this.panel.querySelector('.communityChatMessages');
++        const scroll = host.scrollTop; const wasBottom = host.scrollHeight-host.scrollTop-host.clientHeight < 80;
++        host.replaceChildren(); let day = '';
++        for (const m of this.items) {
++            const date = new Date(m.createdAt).toLocaleDateString();
++            if (date !== day) { const divider = document.createElement('div'); divider.className='communityChatDay'; divider.textContent=date; host.append(divider); day=date; }
++            const row = document.createElement('article'); row.className = `communityChatMessage ${m.authorId === this.me.id ? 'mine' : ''}`;
++            row.dataset.messageId = m.id;
++            const avatar = profileAvatar(m.displayName,`/conversations/${this.current.id}/people/${m.authorId}/avatar`);
++            const bubble = document.createElement('div'); bubble.className = 'communityChatBubble';
++            const name = document.createElement('strong'); name.textContent=m.displayName; name.append(onlineDot(m.authorId));
++            bubble.append(name);
++            if (m.reply) bubble.append(quotePreview(m.reply,id => this.jump(id)));
++            const body = document.createElement('p'); renderEmojiText(body,m.body); bubble.append(body);
++            const time = document.createElement('time'); time.dateTime=new Date(m.createdAt).toISOString(); time.textContent=new Date(m.createdAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); bubble.append(time);
++            if (this.current.canSend) {
++                const actions=document.createElement('div');
++                actions.className='communityChatActions';
++                actions.append(action('Reply', () => { this.reply=m; this.saveDraft(); this.renderReply(); this.input.focus(); }),reactionBar(m,'direct',text => this.error(text)));
++                bubble.append(actions);
++            }
++            row.append(avatar,bubble); host.append(row);
++        }
++        host.scrollTop = bottom || wasBottom ? host.scrollHeight : scroll;
++        this.panel.querySelector('.communityChatOlder').hidden = !this.cursor;
++    }
++    async loadOlder() {
++        if (!this.cursor || this.loadingOlder || !this.current) return;
++        this.loadingOlder = true; const revision=this.revision;
++        const host=this.panel.querySelector('.communityChatMessages'); const height=host.scrollHeight; const scroll=host.scrollTop;
++        try {
++            const data=await communityFetch(`/conversations/${this.current.id}/messages?before=${this.cursor}`);
++            if (revision!==this.revision) return;
++            const ids=new Set(this.items.map(m=>m.id)); this.items=[...data.items.filter(m=>!ids.has(m.id)),...this.items];
++            this.cursor=data.nextCursor; this.renderMessages(false); host.scrollTop=scroll+host.scrollHeight-height;
++        } catch (error) { this.error(error.message); } finally { this.loadingOlder=false; }
++    }
++    async jump(id) {
++        try {
++            let row=this.panel.querySelector(`[data-message-id="${id}"]`);
++            if (!row) {
++                const m=await communityFetch(`/conversations/${this.current.id}/messages/${id}`);
++                const data=await communityFetch(`/conversations/${this.current.id}/messages?before=${m.seq+1}`);
++                const merged=new Map(this.items.map(item=>[item.id,item])); data.items.forEach(item=>merged.set(item.id,item));
++                this.items=[...merged.values()].sort((a,b)=>a.seq-b.seq); this.cursor=data.nextCursor; this.renderMessages(false);
++                row=this.panel.querySelector(`[data-message-id="${id}"]`);
++            }
++            row?.scrollIntoView({block:'nearest',behavior:'smooth'}); row?.classList.add('communityMessageHighlight');
++            setTimeout(()=>row?.classList.remove('communityMessageHighlight'),2000);
++        } catch (error) { this.error(error.message); }
++    }
++    async clearUnread() {
++        if (document.visibilityState !== 'visible' || this.panel.hidden || !this.current || !this.items.length) return;
++        const last=this.items.at(-1); if (this.marked === last.id) return;
++        await communityFetch(`/conversations/${this.current.id}/unread`,{method:'PUT',body:JSON.stringify({throughId:last.id})});
++        this.marked=last.id; this.current.unread=0;
++    }
++    async send() {
++        if (this.sending || !this.current?.canSend || !this.input.value.trim()) return;
++        const c=this.current; const revision=this.revision; const body=this.input.value;
++        const payload=this.retry || {body,replyTo:this.reply?.id || null,clientId:createId()};
++        this.retry=payload; this.sending=true; this.renderSettings();
++        try {
++            const m=await communityFetch(`/conversations/${c.id}/messages`,{method:'POST',body:JSON.stringify(payload)});
++            if (!this.drafts.has(c.id) || this.drafts.get(c.id).body===body) this.drafts.delete(c.id);
++            if (this.current?.id===c.id && this.input.value===body) { this.input.value=''; this.reply=null; this.retry=null; this.renderReply(); this.input.dispatchEvent(new Event('input')); }
++            if (revision!==this.revision) return;
++            if (!this.items.some(item=>item.id===m.id)) this.items.push(m);
++            this.renderMessages(true); this.error();
++        } catch (error) { this.error(error.message); }
++        finally { this.sending=false; this.renderSettings(); }
++    }
++    destroy() { clearInterval(this.timer); document.removeEventListener('communityopenchat',this.openHandler); document.removeEventListener('visibilitychange',this.visibilityHandler); this.picker.destroy(); this.root.remove(); }
++}
++let dock;
++export function initializeChat() { if (!dock || !dock.root.isConnected) dock=new ChatDock(); return dock; }
++export function resetChat() { if (dock) { dock.reset(); dock.me=null; dock.root.hidden=true; } }
+diff --git a/src/scripts/community/chat.test.ts b/src/scripts/community/chat.test.ts
+new file mode 100644
+index 0000000..9943818
+--- /dev/null
++++ b/src/scripts/community/chat.test.ts
+@@ -0,0 +1,69 @@
++import { afterEach, expect, test, vi } from 'vitest';
++vi.mock('./api', () => ({ communityFetch:vi.fn(),createId:()=> 'aaaaaaaaaaaaaaaa',profileAvatar:()=>document.createElement('span') }));
++import { communityFetch } from './api';
++import { ChatDock } from './chat';
++
++let dock: ChatDock | undefined;
++afterEach(()=> { dock?.destroy(); dock=undefined; vi.restoreAllMocks(); document.body.replaceChildren(); });
++
++function setup() {
++    vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
++    let self='self';
++    const conversation={id:'conversation',peer:{id:'peer',name:'Peer'},unread:1,muted:false,blocked:false,canSend:true};
++    const message={id:'message',seq:1,authorId:'peer',displayName:'Peer',body:'Hello',createdAt:1700000000000,reply:null,reactions:[]};
++    vi.mocked(communityFetch).mockImplementation(async (path,options={})=> {
++        if (path==='/me') return {id:self,name:self};
++        if (path==='/conversations') return {items:[{...conversation}]};
++        if (path.endsWith('/messages')) {
++            if ((options as RequestInit).method==='POST') return {...message,id:'sent',seq:2,authorId:self,body:JSON.parse((options as RequestInit).body as string).body};
++            return {items:[message],nextCursor:null};
++        }
++        if (path.endsWith('/unread')) return {ok:true};
++        return {items:[],ok:true};
++    });
++    dock=new ChatDock();
++    return {conversation,message,changeUser:()=> {self='other';}};
++}
++
++test('drafts and replies survive closing; private chat has no read receipt',async()=> {
++    const {conversation}=setup();
++    await vi.waitFor(()=>expect(dock?.me?.id).toBe('self'));
++    await dock!.select(conversation);
++    dock!.input!.value='Draft 🧃'; dock!.input!.dispatchEvent(new Event('input'));
++    const reply=[...dock!.root.querySelectorAll('button')].find(b=>b.textContent==='Reply')!;
++    reply.click();
++    dock!.root.querySelector<HTMLButtonElement>('[aria-label="Close messages"]')!.click();
++    await dock!.select(conversation);
++    expect(dock!.input!.value).toBe('Draft 🧃');
++    expect(dock!.reply?.id).toBe('message');
++    expect(dock!.root.textContent).not.toMatch(/\bseen\b|read receipt/i);
++    const paths=vi.mocked(communityFetch).mock.calls.map(([path])=>path);
++    expect(paths).toContain('/conversations/conversation/unread');
++});
++
++test('switching Jellyfin accounts removes private drafts and messages',async()=> {
++    const {conversation,changeUser}=setup();
++    await vi.waitFor(()=>expect(dock?.busy).toBe(false));
++    await dock!.select(conversation);
++    dock!.input!.value='private draft'; dock!.input!.dispatchEvent(new Event('input'));
++    changeUser(); await dock!.refresh();
++    expect(dock!.current).toBeNull(); expect(dock!.drafts.size).toBe(0);
++    expect(dock!.input!.value).toBe(''); expect(dock!.panel.hidden).toBe(true);
++    expect(dock!.panel.querySelector('.communityChatMessages')!.textContent).toBe('');
++});
++
++test('a failed send can be retried without creating another message identifier',async()=> {
++    const {conversation}=setup();
++    await vi.waitFor(()=>expect(dock?.busy).toBe(false)); await dock!.select(conversation);
++    dock!.input!.value='hello'; dock!.input!.dispatchEvent(new Event('input'));
++    const original=vi.mocked(communityFetch).getMockImplementation()!;
++    let failed=false;
++    vi.mocked(communityFetch).mockImplementation(async(path,options)=> {
++        if (path.endsWith('/messages') && (options as RequestInit)?.method==='POST' && !failed) {failed=true; throw new Error('Disconnected');}
++        return original(path,options);
++    });
++    await dock!.send(); expect(dock!.input!.value).toBe('hello');
++    await dock!.send(); expect(dock!.input!.value).toBe('');
++    const sends=vi.mocked(communityFetch).mock.calls.filter(([path,options])=>path.endsWith('/messages') && (options as RequestInit)?.method==='POST');
++    expect(sends).toHaveLength(2); expect((sends[0][1] as RequestInit)?.body).toBe((sends[1][1] as RequestInit)?.body);
++});
 diff --git a/src/scripts/community/community.scss b/src/scripts/community/community.scss
 new file mode 100644
-index 0000000..a4ece6e
+index 0000000..60171d1
 --- /dev/null
 +++ b/src/scripts/community/community.scss
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,188 @@
 +.communityPresenceButton { width: auto !important; min-width: 3.2em; gap: .2em; padding-inline: .65em !important; }
 +.communityPresenceButton.communityUnavailable { opacity: .55; }
 +.communityPresenceLabel { font-size: .86em; }
@@ -5563,6 +6072,75 @@ index 0000000..a4ece6e
 +.communityMessageHeader time { opacity: .65; font-size: .9em; }
 +.communityMessageBody { white-space: pre-wrap; overflow-wrap: anywhere; margin: .55em 0; }
 +.communityFlagEmoji { display: inline-block; width: 1.375em; height: 1em; vertical-align: -.1em; }
++.communityOnlineDot.communityAuthorDot { display: inline-block; margin-inline-start: .4em; vertical-align: middle; }
++.communityAuthorDot[hidden], .communityChatDock[hidden], .communityChatDock [hidden], .communityReactionPicker[hidden] { display: none !important; }
++.communityAction { color: inherit; border: 0; border-radius: .6em; background: #ffffff0d; padding: .45em .7em; cursor: pointer; font: inherit; font-size: .85em; }
++.communityAction:hover { background: #ffffff20; }
++.communityAction:focus-visible, .communityChatDock button:focus-visible { outline: 2px solid #00a4dc; outline-offset: 2px; }
++.communityAction:disabled { opacity: .6; cursor: default; }
++.communityOnlineUsers .communityAction { margin-left: auto; }
++.communityQuote { display: flex; flex-direction: column; text-align: left; gap: .3em; border-left: 3px solid #00a4dc; background: #ffffff0d; margin-block: .6em; max-width: 100%; }
++.communityQuote span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
++.communityBoardReply,.communityChatReply { display: flex; align-items: center; gap: .4em; }
++.communityBoardReply .communityQuote,.communityChatReply .communityQuote { flex: 1; min-width: 0; }
++.communityReactions { display: flex; flex-wrap: wrap; align-items: center; gap: .25em; position: relative; margin-top: .45em; }
++.communityReaction { border-radius: 1em 0 0 1em; padding-right: .2em; }
++.communityReaction.mine { background: #00a4dc40; box-shadow: inset 0 0 0 1px #00a4dc; }
++.communityReactionCount { border-radius: 0 1em 1em 0; margin-left: -.25em; padding-left: .3em; }
++.communityReactionPicker { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); width: min(22em,100%); flex-basis: 100%; background: #191d24; padding: .5em; border: 1px solid #ffffff25; border-radius: .8em; }
++.communityReactionPeople { flex-basis: 100%; font-size: .85em; margin: .3em 0; }
++.communityMessageHighlight { outline: 2px solid #00a4dc; border-radius: .6em; }
++.communityChatDock { display: flex; flex-direction: column; align-items: flex-end; position: fixed; right: max(1.2em,env(safe-area-inset-right)); bottom: max(1em,env(safe-area-inset-bottom)); z-index: 1100; font-size: 14px; color: #f0f2f6; }
++.communityChatLauncher { display: block; margin-left: auto; background: #006b93; border: 1px solid #56d2ff60; padding: .9em 1.3em; border-radius: 2em; box-shadow: 0 4px 20px #0006; font-size: 1em; }
++.communityChatPanel { display: flex; flex-direction: column; width: min(29em,calc(100vw - 2em)); height: min(43em,calc(100dvh - 8em)); margin-bottom: .8em; border-radius: 1.1em; border: 1px solid #ffffff24; background: #171b22; box-shadow: 0 12px 45px #000a; overflow: hidden; }
++.communityChatHeader { display: flex; align-items: center; justify-content: space-between; padding: .9em 1em; gap: .5em; background: #202631; border-bottom: 1px solid #ffffff14; }
++.communityChatTitle { display: flex; gap: .65em; align-items: center; min-width: 0; }
++.communityChatTitle strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.communityChatControls { display: flex; gap: .3em; }
++.communityChatControls button { font-size: 1.4em; padding: .2em .5em; }
++.communityChatInbox { overflow-y: auto; flex: 1; padding: .7em; }
++.communityChatInbox > p { padding: 1em; line-height: 1.6; opacity: .75; }
++.communityConversation { display: flex; align-items: center; text-align: left; width: 100%; gap: .8em; padding: 1em .6em; background: transparent; font-size: 1em; }
++.communityConversation > span:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .35em; }
++.communityConversation > span:nth-child(2) > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .9em; opacity: .65; }
++.communityUnreadBadge { background: #00a4dc; color: #fff; border-radius: 2em; padding: .25em .55em; }
++.communityChatThread { display: flex; flex-direction: column; flex: 1; min-height: 0; }
++.communityChatSettings { display: flex; align-items: center; gap: .5em; padding: .45em .8em; }
++.communityChatSettings > span { font-size: .8em; opacity: .7; }
++.communityChatOlder { color: #89d7f5; background: transparent; border: 0; padding: .6em; cursor: pointer; }
++.communityChatMessages { flex: 1; overflow-y: auto; padding: .75em; min-height: 0; overscroll-behavior: contain; }
++.communityChatDay { text-align: center; opacity: .55; font-size: .75em; padding: 1em 0; }
++.communityChatMessage { display: flex; align-items: flex-end; gap: .5em; margin: .6em 0; }
++.communityChatMessage.mine { flex-direction: row-reverse; }
++.communityChatMessage > .communityAvatar { width: 1.8em; height: 1.8em; font-size: .8em; }
++.communityChatBubble { max-width: 80%; min-width: 5em; padding: .8em .9em; border-radius: 1.2em 1.2em 1.2em .3em; background: #29313e; }
++.communityChatMessage.mine .communityChatBubble { background: #075878; border-radius: 1.2em 1.2em .3em 1.2em; }
++.communityChatBubble > strong { font-size: .75em; opacity: .8; }
++.communityChatBubble > p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .45em 0; line-height: 1.45; }
++.communityChatBubble time { display: block; text-align: right; font-size: .7em; opacity: .6; margin-bottom: .5em; }
++.communityChatActions { display: flex; flex-wrap: wrap; align-items: center; gap: .45em; margin-top: .15em; }
++.communityChatActions > .communityAction { font-size: .72em; background: transparent; padding: .15em .25em; opacity: .7; }
++.communityChatActions .communityReactions { margin: 0; font-size: .85em; gap: .15em; }
++.communityChatActions .communityReactions:has(.communityReactionPicker:not([hidden])),.communityChatActions .communityReactions:has(.communityReactionPeople) { flex-basis: 100%; }
++.communityChatActions .communityReaction,.communityChatActions .communityReactionCount { padding: .2em .35em; }
++.communityChatActions .communityReactions > button[aria-expanded] { font-size: 1em; padding: .15em .35em; background: transparent; opacity: .75; }
++.communityChatActions .communityReactions > button:hover,.communityChatActions > button:hover { opacity: 1; background: #ffffff18; }
++.communityChatComposer { border-top: 1px solid #ffffff14; padding: .7em; }
++.communityChatComposer > label { position: absolute; width: 1px; height: 1px; overflow: hidden; }
++.communityChatComposer textarea { min-height: 3.4em; max-height: 7em; resize: none; border-radius: 1em; font: inherit; }
++.communityChatComposer .communityComposerFooter { gap: .5em; }
++.communityChatLength { font-size: .75em; opacity: .6; }
++.communityChatSend { color: #fff; background: #007da8; border: 0; border-radius: 1em; padding: .7em 1.1em; cursor: pointer; }
++.communityChatSend:disabled { opacity: .5; cursor: default; }
++.communityChatComposer .communityEmojiPicker { max-height: 12em; overflow-y: auto; font-size: .85em; }
++.communityChatError { color: #ffb4ab; font-size: .85em; margin: 0; padding: .2em .8em; }
++.communityChatError:empty { display: none; }
++@media (max-width: 600px) {
++    .communityChatDock { right: .6em; bottom: .6em; }
++    .communityChatPanel { position: fixed; inset: 0; width: 100%; height: 100dvh; margin: 0; border-radius: 0; }
++    .communityChatPanel:not([hidden]) + * { display: none; }
++    .communityChatComposer { padding-bottom: max(.7em,env(safe-area-inset-bottom)); }
++}
 +.communityMessageDelete { margin-left: auto; }
 +.communityPreview { margin-top: 2em; padding-bottom: 1.5em; }
 +.communityPreviewScroller { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(16em, 22em); gap: 1em; overflow-x: auto; padding-top: .5em; padding-bottom: .8em; scroll-snap-type: x proximity; scrollbar-width: none; }
@@ -5602,6 +6180,42 @@ index 0000000..a4ece6e
 +.communityPrivacyHint { font-size: .8em; opacity: .75; line-height: 1.4; margin: .25em 0 0; }
 +@media (max-width: 850px) { .communityBoardLayout,.communityPreviewLayout { grid-template-columns: minmax(0, 1fr); } .communityOnlinePanel { grid-row: 1; } .communityPreviewLayout { padding-right: 0; } .communityPreviewLayout > .communityOnlinePanel { margin: 0 3.3%; } .communityOnlineUsers { display: flex; flex-wrap: wrap; gap: .4em 1.2em; } }
 +.requestSearchBar { display: flex; gap: .5em; max-width: 44em; }
++.requestBoardPage [hidden], .requestBoardPreview [hidden] { display: none !important; }
++.requestBoardPageHeading,.requestBoardFilters { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1em; }
++.requestBoardPageHeading h1 { margin-top: 0; }
++.requestSearchSection,.requestBoardListSection,.requestTmdbSetup { margin: 1.5em 0; }
++.requestBoardPage select,.requestTmdbSetup input { color: inherit; background: #252931; padding: .65em; border: 1px solid #ffffff30; border-radius: .5em; font: inherit; }
++.requestSearchBar input { color: inherit; background: #0003; border: 1px solid #ffffff30; border-radius: .5em; }
++.requestBoardPreview .sectionTitleContainer { display: flex; align-items: center; justify-content: space-between; padding-right: 3.3%; }
++.requestBoardTitle { display: inline-flex; align-items: center; gap: .25em; }
++.requestBoardTitle,.requestBoardAdd { color: inherit; text-decoration: none; }
++.requestBoardPreviewCards { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(17em,22em); gap: 1em; overflow-x: auto; padding-top: .5em; padding-bottom: .8em; }
++.requestBoardPreviewCards:empty { display: none; }
++.requestBoardCards { display: grid; grid-template-columns: repeat(auto-fill,minmax(19em,1fr)); gap: 1em; margin-top: 1em; }
++.requestBoardCard { box-sizing: border-box; border-radius: .6em; background: #ffffff0d; padding: 1em; border: 1px solid #ffffff12; }
++.requestBoardIdentity { display: flex; gap: .85em; align-items: center; color: inherit; text-decoration: none; margin-bottom: .8em; }
++.requestBoardIdentity > div { display: flex; flex-direction: column; gap: .4em; }
++.requestBoardIdentity strong { font-size: 1.05em; }
++.requestBoardPoster { display: inline-grid; place-items: center; flex-shrink: 0; width: 4em; height: 6em; border-radius: .3em; background: #ffffff0d; font-weight: 600; }
++.requestBoardPerson { display: flex; align-items: center; flex-wrap: wrap; gap: .5em; border-top: 1px solid #ffffff12; padding: .6em 0; font-size: .9em; }
++.requestBoardPerson time { opacity: .5; font-size: .8em; }
++.requestBoardPerson small { flex-basis: 100%; opacity: .7; }
++.requestBoardStatus { font-size: .8em; border-radius: 1em; padding: .3em .6em; background: #00a4dc20; color: #b6e9ff; }
++.requestBoardStatus.available { background: #62d99820; color: #9cedc0; }
++.requestBoardStatus.declined { background: #ffb4ab18; color: #ffb4ab; }
++.requestBoardStatus.in_progress { background: #e5bc4320; color: #f6dda3; }
++.requestBoardPage .requestResults { display: grid; grid-template-columns: repeat(auto-fill,minmax(20em,1fr)); gap: .7em; }
++.requestSearchResult { display: flex; gap: 1em; align-items: flex-start; text-align: left; padding: 1em; font-size: 1em; }
++.requestSearchResult > span:last-child { display: flex; flex-direction: column; gap: .4em; min-width: 0; }
++.requestSearchResult small,.requestSearchResult > span > span { opacity: .65; font-size: .85em; line-height: 1.4; }
++.requestSelection { padding: 1em; border: 1px solid #00a4dc50; border-radius: .6em; background: #00a4dc0a; margin: 1em 0; }
++.requestLibraryMatches { display: flex; flex-direction: column; gap: .4em; }
++.requestConfirm { display: block; margin-top: 1em; background: #00769f; font-size: 1em; padding: .7em 1.1em; }
++.requestTmdbSetup { padding: 1em; border-top: 1px solid #ffffff20; }
++.requestTmdbSetup input { display: block; width: min(100%,35em); box-sizing: border-box; margin: .5em 0; }
++.requestCredits { margin-top: 2em; font-size: .8em; opacity: .65; }
++.requestCredits img { display: block; width: 7em; margin-bottom: .5em; }
++@media (max-width: 600px) { .requestSearchBar { flex-wrap: wrap; } .requestSearchBar input { flex-basis: 100%; } .requestBoardCards,.requestBoardPage .requestResults { grid-template-columns: minmax(0,1fr); } }
 +.requestSearchBar input { flex: 1; min-width: 0; padding: .8em; }
 +.requestResults { display: grid; grid-template-columns: repeat(auto-fill,minmax(13em,1fr)); gap: 1em; margin: 1.5em 0; }
 +.requestCard { color: inherit; text-align: left; border: 0; border-radius: .45em; background: #ffffff12; padding: 1em; min-height: 7em; cursor: pointer; }
@@ -5666,13 +6280,13 @@ index 0000000..9fa261a
 +});
 diff --git a/src/scripts/community/emojiPicker.js b/src/scripts/community/emojiPicker.js
 new file mode 100644
-index 0000000..e62c440
+index 0000000..e8e6e4a
 --- /dev/null
 +++ b/src/scripts/community/emojiPicker.js
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,83 @@
 +import { renderEmojiText } from './emojiDisplay';
 +
-+const FACES = [
++export const FACES = [
 +    ['😀', 'Grinning face'], ['😃', 'Happy face'], ['😄', 'Smiling face'], ['😁', 'Beaming face'],
 +    ['😆', 'Laughing face'], ['😅', 'Smiling with sweat'], ['😂', 'Tears of joy'], ['🤣', 'Rolling with laughter'],
 +    ['🙂', 'Slight smile'], ['🙃', 'Upside-down face'], ['😉', 'Winking face'], ['😊', 'Blushing smile'],
@@ -5681,6 +6295,7 @@ index 0000000..e62c440
 +    ['😐', 'Neutral face'], ['🙄', 'Rolling eyes'], ['😢', 'Crying face'], ['😭', 'Loudly crying face'],
 +    ['😮', 'Surprised face'], ['😴', 'Sleeping face'], ['😬', 'Grimacing face'], ['😡', 'Angry face']
 +];
++export const EXTRAS = [['🇮🇱', 'Israel flag'], ['🧃', 'Juice box']];
 +
 +export function insertEmoji(input, emoji) {
 +    const start = input.selectionStart ?? input.value.length;
@@ -5709,7 +6324,7 @@ index 0000000..e62c440
 +        this.outside = event => {
 +            if (!this.panel.contains(event.target) && !this.toggle.contains(event.target)) this.close();
 +        };
-+        [['Faces', FACES], ['Extras', [['🇮🇱', 'Israel flag'], ['🧃', 'Juice box']]]].forEach(([name, emojis]) => {
++        [['Faces', FACES], ['Extras', EXTRAS]].forEach(([name, emojis]) => {
 +            const heading = document.createElement('h3');
 +            heading.textContent = name;
 +            const grid = document.createElement('div');
@@ -5858,15 +6473,18 @@ index 0000000..454d5b8
 +});
 diff --git a/src/scripts/community/online.js b/src/scripts/community/online.js
 new file mode 100644
-index 0000000..1da9b76
+index 0000000..36d2b7d
 --- /dev/null
 +++ b/src/scripts/community/online.js
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,142 @@
 +import { communityFetch, profileAvatar } from './api';
 +import { heartbeat } from './presence';
++import { updateOnline, openChat, action } from './socialWidgets';
++import { initializeChat } from './chat';
 +
 +export class OnlinePanel {
 +    constructor(container) {
++        initializeChat();
 +        this.container = container;
 +        this.timer = null;
 +        this.active = false;
@@ -5883,6 +6501,7 @@ index 0000000..1da9b76
 +        this.input.addEventListener('change', () => this.setInvisible(this.input.checked));
 +        this.preferenceChanged = () => {
 +            this.usersKey = null;
++            updateOnline([]);
 +            this.refresh();
 +        };
 +        this.visibility = () => {
@@ -5955,6 +6574,7 @@ index 0000000..1da9b76
 +    renderUsers(publishedUsers) {
 +        const users = publishedUsers.filter(user => user.id !== this.me?.id || this.me.presenceVisible);
 +        this.users = users;
++        updateOnline(users);
 +        const key = JSON.stringify(users.map(user => [user.id, user.name]));
 +        if (this.usersKey === key) return;
 +        this.usersKey = key;
@@ -5971,7 +6591,10 @@ index 0000000..1da9b76
 +            portrait.appendChild(dot);
 +            const name = document.createElement('span');
 +            name.textContent = user.name;
++            const message = action('Message', () => openChat(user));
++            message.setAttribute('aria-label', `Message ${user.name}`);
 +            row.append(portrait, name);
++            if (user.id !== this.me?.id) row.append(message);
 +            list.appendChild(row);
 +        });
 +        this.container.querySelector('.communityOnlineCount').textContent = String(users.length);
@@ -5998,10 +6621,10 @@ index 0000000..1da9b76
 +}
 diff --git a/src/scripts/community/online.test.ts b/src/scripts/community/online.test.ts
 new file mode 100644
-index 0000000..0689003
+index 0000000..936038c
 --- /dev/null
 +++ b/src/scripts/community/online.test.ts
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,72 @@
 +import { afterEach, expect, test, vi } from 'vitest';
 +
 +vi.mock('./api', () => ({
@@ -6009,6 +6632,7 @@ index 0000000..0689003
 +    profileAvatar: () => document.createElement('span')
 +}));
 +vi.mock('./presence', () => ({ heartbeat: vi.fn(async () => undefined) }));
++vi.mock('./chat', () => ({ initializeChat: vi.fn() }));
 +
 +import { communityFetch } from './api';
 +import { OnlinePanel } from './online';
@@ -6075,12 +6699,14 @@ index 0000000..0689003
 +});
 diff --git a/src/scripts/community/presence.js b/src/scripts/community/presence.js
 new file mode 100644
-index 0000000..632a1d3
+index 0000000..ef36056
 --- /dev/null
 +++ b/src/scripts/community/presence.js
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,112 @@
 +import { communityFetch, createId } from './api';
 +import './community.scss';
++import { updateOnline, openChat, action } from './socialWidgets';
++import { initializeChat } from './chat';
 +
 +/* eslint-disable @stylistic/max-statements-per-line */
 +
@@ -6089,6 +6715,7 @@ index 0000000..632a1d3
 +let sessionId;
 +let button;
 +let dialog;
++let pollRevision = 0;
 +
 +function getSessionId() {
 +    if (!sessionId) {
@@ -6118,7 +6745,7 @@ index 0000000..632a1d3
 +        avatar.textContent = user.name.trim().slice(0, 1).toUpperCase() || '?';
 +        const name = document.createElement('span');
 +        name.textContent = user.name;
-+        row.append(avatar, name);
++        row.append(avatar, name, action('Message', () => { dialog.close(); openChat(user); }));
 +        return row;
 +    }));
 +    if (!users.length) {
@@ -6130,8 +6757,11 @@ index 0000000..632a1d3
 +
 +async function poll() {
 +    if (document.visibilityState !== 'visible') return;
++    const revision = ++pollRevision;
 +    try {
 +        const { users } = await communityFetch('/presence');
++        if (revision !== pollRevision) return;
++        updateOnline(users);
 +        button?.classList.remove('communityUnavailable');
 +        if (button) {
 +            button.querySelector('.communityPresenceCount').textContent = String(users.length);
@@ -6140,6 +6770,8 @@ index 0000000..632a1d3
 +        }
 +        renderUsers(users);
 +    } catch {
++        if (revision !== pollRevision) return;
++        updateOnline([]);
 +        button?.classList.add('communityUnavailable');
 +        if (button) {
 +            button.querySelector('.communityPresenceCount').textContent = '?';
@@ -6166,6 +6798,7 @@ index 0000000..632a1d3
 +}
 +
 +export function initializePresence(headerButton) {
++    initializeChat();
 +    if (button === headerButton) return;
 +    button = headerButton;
 +    button.addEventListener('click', () => { ensureDialog().showModal(); void poll(); });
@@ -6182,14 +6815,46 @@ index 0000000..632a1d3
 +}
 +
 +/* eslint-enable @stylistic/max-statements-per-line */
+diff --git a/src/scripts/community/presence.test.ts b/src/scripts/community/presence.test.ts
+new file mode 100644
+index 0000000..0c888eb
+--- /dev/null
++++ b/src/scripts/community/presence.test.ts
+@@ -0,0 +1,25 @@
++import {afterEach,expect,test,vi} from 'vitest';
++vi.mock('./api',()=>({communityFetch:vi.fn(),createId:()=> 'test_session_abcdefgh'}));
++vi.mock('./chat',()=>({initializeChat:vi.fn()}));
++import {communityFetch} from './api';
++import {initializePresence} from './presence';
++import {onlineDot,updateOnline} from './socialWidgets';
++afterEach(()=> {vi.clearAllTimers();vi.useRealTimers();vi.restoreAllMocks();document.body.replaceChildren();});
++
++test('a delayed header poll cannot relight author dots after an invisible preference change',async()=> {
++    vi.useFakeTimers();vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
++    let finishOld:(value:unknown)=>void=()=> undefined;let reads=0;
++    vi.mocked(communityFetch).mockImplementation(async path=> {
++        if (path==='/presence/heartbeat') return {};
++        if (++reads===1) return new Promise(resolve=> {finishOld=resolve;});
++        return {users:[]};
++    });
++    const button=document.createElement('button');button.innerHTML='<span class="communityPresenceCount"></span>';
++    const dot=onlineDot('self');document.body.append(button,dot);updateOnline([{id:'self'}]);
++    initializePresence(button);
++    document.dispatchEvent(new CustomEvent('communitypresencechange',{detail:{visible:false}}));
++    await vi.waitFor(()=>expect(dot.hidden).toBe(true));
++    finishOld({users:[{id:'self',name:'Self'}]});
++    await Promise.resolve();await Promise.resolve();await Promise.resolve();
++    expect(dot.hidden).toBe(true);
++});
 diff --git a/src/scripts/community/preview.js b/src/scripts/community/preview.js
 new file mode 100644
-index 0000000..c740e83
+index 0000000..7b8d259
 --- /dev/null
 +++ b/src/scripts/community/preview.js
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,168 @@
 +import { communityFetch, messageAvatar } from './api';
 +import { renderEmojiText } from './emojiDisplay';
++import { onlineDot } from './socialWidgets';
 +import { OnlinePanel } from './online';
 +import { HoldAdvance } from './holdAdvance';
 +import 'elements/emby-scrollbuttons/emby-scrollbuttons.scss';
@@ -6305,7 +6970,7 @@ index 0000000..c740e83
 +        time.textContent = new Date(message.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
 +        const identity = document.createElement('div');
 +        identity.className = 'communityMessageIdentity';
-+        identity.append(messageAvatar(message), author);
++        identity.append(messageAvatar(message), author, onlineDot(message.authorId));
 +        card.append(identity, text, time);
 +        return card;
 +    }
@@ -6355,19 +7020,297 @@ index 0000000..c740e83
 +}
 +
 +/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/pseudo-random */
+diff --git a/src/scripts/community/requestBoard.js b/src/scripts/community/requestBoard.js
+new file mode 100644
+index 0000000..e112e26
+--- /dev/null
++++ b/src/scripts/community/requestBoard.js
+@@ -0,0 +1,69 @@
++import { communityFetch, profileAvatar } from './api';
++import { action } from './socialWidgets';
++import './community.scss';
++
++export const REQUEST_STATUS = { requested:'Requested',in_progress:'In progress',available:'Available',declined:'Declined' };
++export function requestPoster(item) {
++    if (!item.posterUrl) return null;
++    const poster=profileAvatar(item.title,item.posterUrl.replace('/api/community',''));
++    poster.classList.remove('communityInitials'); poster.classList.add('requestBoardPoster');
++    return poster;
++}
++export function requestCard(item,me,onChange,onError,compact=false) {
++    const card=document.createElement('article'); card.className='requestBoardCard';
++    const identity=document.createElement('a'); identity.href='#/request-media'; identity.className='requestBoardIdentity';
++    const poster=requestPoster(item); if (poster) identity.append(poster);
++    const title=document.createElement('strong'); title.textContent=`${item.title}${item.year ? ` (${item.year})` : ''}`;
++    const type=document.createElement('span'); type.className='communityMuted'; type.textContent=item.mediaType==='tv' ? 'Show' : 'Movie';
++    const heading=document.createElement('div'); heading.append(title,type); identity.append(heading); card.append(identity);
++    for (const request of compact ? item.requests.slice(0,3) : item.requests) {
++        const row=document.createElement('div'); row.className='requestBoardPerson';
++        const name=document.createElement('span'); name.textContent=request.displayName;
++        const status=document.createElement('span'); status.className=`requestBoardStatus ${request.status}`; status.textContent=REQUEST_STATUS[request.status] || 'Requested';
++        row.append(name,status);
++        if (request.seasons.length) {const seasons=document.createElement('small'); seasons.textContent=`Seasons ${request.seasons.join(', ')}`; row.append(seasons);}
++        if (!compact) {
++            const time=document.createElement('time'); time.dateTime=new Date(request.createdAt).toISOString(); time.textContent=new Date(request.createdAt).toLocaleDateString(); row.append(time);
++            if (me?.isAdmin) {
++                const select=document.createElement('select'); select.setAttribute('aria-label',`Status for ${item.title}, requested by ${request.displayName}`);
++                Object.entries(REQUEST_STATUS).forEach(([value,label])=> {const option=document.createElement('option'); option.value=value; option.textContent=label; select.append(option);});
++                select.value=request.status;
++                select.addEventListener('change',async()=> {
++                    select.disabled=true;
++                    try {await communityFetch(`/request-board/${request.id}/status`,{method:'PUT',body:JSON.stringify({status:select.value})}); await onChange();}
++                    catch(error) {select.value=request.status; onError(error.message);} finally {select.disabled=false;}
++                }); row.append(select);
++            }
++            if (request.canRemove) row.append(action(request.authorId===me?.id ? 'Remove my request' : 'Remove request',async()=> {
++                try {await communityFetch(`/request-board/${request.id}`,{method:'DELETE'}); await onChange();} catch(error) {onError(error.message);}
++            }));
++        }
++        card.append(row);
++    }
++    if (compact && item.requests.length>3) {const more=document.createElement('small'); more.textContent=`+${item.requests.length-3} more requesters`; card.append(more);}
++    return card;
++}
++
++export class RequestBoardPreview {
++    constructor(container) {
++        this.container=container; this.active=false; this.loading=false; this.key=null; this.revision=0;
++        container.className='verticalSection requestBoardPreview';
++        container.innerHTML='<div class="sectionTitleContainer sectionTitleContainer-cards padded-left"><a class="button-flat button-flat-mini sectionTitleTextButton requestBoardTitle" href="#/request-media"><h2 class="sectionTitle sectionTitle-cards">Requests</h2><span class="material-icons chevron_right" aria-hidden="true"></span></a><a href="#/request-media?add=1" class="communityAction requestBoardAdd">+ Add request</a></div><div class="requestBoardPreviewCards padded-left padded-right"></div><p class="requestBoardPreviewStatus communityMuted padded-left" role="status"></p>';
++    }
++    async refresh() {
++        if (!this.active || this.loading || document.visibilityState!=='visible') return;
++        this.loading=true;
++        const revision=this.revision;
++        try {
++            const data=await communityFetch('/request-board'); if (!this.active || revision!==this.revision) return;
++            const key=JSON.stringify(data.items); if (key===this.key) return; this.key=key;
++            const host=this.container.querySelector('.requestBoardPreviewCards'); host.replaceChildren();
++            host.append(...data.items.slice(0,5).map(item=>requestCard(item,null,null,null,true)));
++            this.container.querySelector('.requestBoardPreviewStatus').textContent=data.items.length ? '' : 'No requests yet. Add a movie or show you would like to watch.';
++        } catch(error) {if (revision===this.revision) {this.key=null; this.container.querySelector('.requestBoardPreviewCards').replaceChildren(); this.container.querySelector('.requestBoardPreviewStatus').textContent=error.message;}}
++        finally {this.loading=false;}
++    }
++    resume() {this.pause(); this.active=true; this.loading=false; this.key=null; this.container.querySelector('.requestBoardPreviewCards').replaceChildren(); this.refresh(); this.timer=setInterval(()=>void this.refresh(),15000);}
++    pause() {this.active=false; this.revision++; clearInterval(this.timer);}
++    destroy() {this.pause(); this.container.remove();}
++}
+diff --git a/src/scripts/community/requestBoard.test.ts b/src/scripts/community/requestBoard.test.ts
+new file mode 100644
+index 0000000..b78e57a
+--- /dev/null
++++ b/src/scripts/community/requestBoard.test.ts
+@@ -0,0 +1,71 @@
++/// <reference types="vite/client" />
++import { afterEach,expect,test,vi } from 'vitest';
++import template from '../../apps/legacy/controllers/requestmedia.html?raw';
++vi.mock('./api',()=>({communityFetch:vi.fn(),profileAvatar:()=>document.createElement('span')}));
++import { communityFetch } from './api';
++import RequestMediaPage from '../../apps/legacy/controllers/requestmedia';
++import { requestCard,RequestBoardPreview } from './requestBoard';
++let page:RequestMediaPage | undefined;
++afterEach(()=> {page?.destroy();page=undefined;vi.restoreAllMocks();document.body.replaceChildren();});
++
++function setup(state='not_found') {
++    vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
++    document.body.innerHTML=template;
++    HTMLElement.prototype.scrollIntoView=vi.fn();
++    const title={mediaType:'movie',mediaId:1,title:'Exact Movie',year:2021,seasons:[]};
++    vi.mocked(communityFetch).mockImplementation(async path=> {
++        if (path==='/me') return {id:'self',name:'Self',isAdmin:false};
++        if (path==='/request-board/config') return {isAdmin:false,catalogReady:true};
++        if (path==='/request-board') return {items:[]};
++        return {title,library:{state,matches:[],seasons:[]}};
++    });
++    const view=document.querySelector<HTMLElement>('#requestMediaPage')!;
++    page=new RequestMediaPage(view); return {view,title};
++}
++
++test('an owned movie cannot be submitted from the interface; movie editions are not requested',async()=> {
++    const {view,title}=setup('available'); await page!.onResume(); await page!.select(title);
++    const button=view.querySelector<HTMLButtonElement>('.requestConfirm')!;
++    expect(button.disabled).toBe(true); expect(button.textContent).toBe('Already available');
++    button.click();
++    expect(vi.mocked(communityFetch).mock.calls.some(([,options])=>(options as RequestInit)?.method==='POST')).toBe(false);
++    expect(view.textContent).not.toMatch(/director.s cut|4K|quality profile/i);
++});
++
++test('ambiguous library matches require explicit manual confirmation',async()=> {
++    const {view,title}=setup('needs_check'); await page!.onResume(); await page!.select(title);
++    expect(view.querySelector<HTMLButtonElement>('.requestConfirm')!.disabled).toBe(true);
++    const checkbox=view.querySelector<HTMLInputElement>('.requestManualCheck')!; checkbox.checked=true; checkbox.dispatchEvent(new Event('change'));
++    expect(view.querySelector<HTMLButtonElement>('.requestConfirm')!.disabled).toBe(false);
++});
++
++test('request deletion controls only appear on permitted entries',()=> {
++    const item={title:'Movie',mediaType:'movie',year:2000,requests:[{id:'other',authorId:'other',displayName:'Other',seasons:[],status:'requested',createdAt:1,canRemove:false}]};
++    const card=requestCard(item,{id:'self',isAdmin:false},vi.fn(),vi.fn());
++    expect(card.textContent).not.toContain('Remove');
++    item.requests[0].canRemove=true;
++    const adminCard=requestCard(item,{id:'self',isAdmin:true},vi.fn(),vi.fn());
++    expect(adminCard.textContent).toContain('Remove request');
++    expect(adminCard.querySelector('select')).not.toBeNull();
++});
++
++test('a restricted account cannot inherit catalogue details or credentials from a previous view session',async()=> {
++    const {view}=setup(); await page!.onResume();
++    view.querySelector('.requestBoardCards')!.textContent='Previous account request';
++    view.querySelector<HTMLInputElement>('#requestTmdbToken')!.value='unsaved-private-token';
++    vi.mocked(communityFetch).mockImplementation(async()=> {throw new Error('Catalogue unavailable for this account');});
++    await page!.onResume();
++    expect(view.querySelector('.requestBoardCards')!.textContent).toBe('');
++    expect(view.querySelector<HTMLInputElement>('#requestTmdbToken')!.value).toBe('');
++    expect(view.querySelector<HTMLFormElement>('.requestTmdbSetup')!.hidden).toBe(true);
++});
++
++test('home request cards disappear when session access fails',async()=> {
++    vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
++    const host=document.createElement('section');document.body.append(host);
++    const preview=new RequestBoardPreview(host);preview.active=true;
++    host.querySelector('.requestBoardPreviewCards')!.textContent='Previous session requests';
++    vi.mocked(communityFetch).mockRejectedValue(new Error('Not permitted'));
++    await preview.refresh();
++    expect(host.querySelector('.requestBoardPreviewCards')!.textContent).toBe('');preview.destroy();
++});
+diff --git a/src/scripts/community/socialWidgets.js b/src/scripts/community/socialWidgets.js
+new file mode 100644
+index 0000000..a9f0d12
+--- /dev/null
++++ b/src/scripts/community/socialWidgets.js
+@@ -0,0 +1,104 @@
++import { communityFetch } from './api';
++import { FACES, EXTRAS } from './emojiPicker';
++import { renderEmojiText } from './emojiDisplay';
++
++let online = new Set();
++export function updateOnline(users) {
++    online = new Set(users.map(user => user.id));
++    document.querySelectorAll('[data-community-author]').forEach(dot => {
++        const visible = online.has(dot.dataset.communityAuthor);
++        dot.hidden = !visible;
++        dot.setAttribute('aria-label', visible ? 'Online' : 'Offline');
++    });
++}
++export function onlineDot(id) {
++    const dot = document.createElement('span');
++    dot.className = 'communityOnlineDot communityAuthorDot';
++    dot.dataset.communityAuthor = id;
++    dot.setAttribute('role', 'img');
++    dot.setAttribute('aria-label', online.has(id) ? 'Online' : 'Offline');
++    dot.hidden = !online.has(id);
++    return dot;
++}
++export function openChat(user) {
++    document.dispatchEvent(new CustomEvent('communityopenchat', { detail: user }));
++}
++export function action(label, callback, className = '') {
++    const button = document.createElement('button');
++    button.type = 'button';
++    button.className = `communityAction ${className}`;
++    button.textContent = label;
++    button.addEventListener('click', callback);
++    return button;
++}
++export function visibleMessageIds(container, viewport = null) {
++    const bounds = viewport?.getBoundingClientRect() || { top:0,bottom:window.innerHeight };
++    return [...container.querySelectorAll('[data-message-id]')].filter(row => {
++        const rect=row.getBoundingClientRect();
++        return rect.bottom>=bounds.top && rect.top<=bounds.bottom;
++    }).slice(0,200).map(row=>row.dataset.messageId);
++}
++export function quotePreview(reply, jump) {
++    const quote = action('', () => { if (!reply.deleted) jump(reply.id); }, 'communityQuote');
++    const name = document.createElement('strong');
++    name.textContent = reply.deleted ? 'Original message' : reply.displayName;
++    const body = document.createElement('span');
++    renderEmojiText(body, reply.body);
++    quote.append(name, body);
++    quote.disabled = !!reply.deleted;
++    quote.title = reply.deleted ? 'Message deleted' : 'Go to original message';
++    return quote;
++}
++export function reactionBar(message, scope, onError) {
++    const host = document.createElement('div');
++    host.className = 'communityReactions';
++    let pending = false;
++    const change = async (emoji, active) => {
++        if (pending) return;
++        pending = true;
++        try {
++            const result = await communityFetch(`/reactions/${scope}/${message.id}`, { method: 'PUT', body: JSON.stringify({ emoji, active }) });
++            message.reactions = result.reactions;
++            draw();
++            document.dispatchEvent(new Event('communitymessageschange'));
++        } catch (error) { onError(error.message); }
++        finally { pending = false; }
++    };
++    const draw = () => {
++        host.replaceChildren();
++        (message.reactions || []).forEach(reaction => {
++            const pill = action('', () => change(reaction.emoji, !reaction.mine), reaction.mine ? 'communityReaction mine' : 'communityReaction');
++            renderEmojiText(pill, `${reaction.emoji} ${reaction.count}`);
++            pill.setAttribute('aria-pressed', String(reaction.mine));
++            pill.setAttribute('aria-label', `${reaction.emoji}, ${reaction.count} reactions${reaction.mine ? ', including yours' : ''}`);
++            const people = reaction.people.map(p => p.name).join(', ');
++            pill.title = people;
++            const count = action(String(reaction.count), () => {
++                const names = document.createElement('p'); names.className = 'communityReactionPeople'; names.textContent = people;
++                const existing = host.querySelector('.communityReactionPeople');
++                if (existing) existing.remove(); else host.append(names);
++            });
++            // Touch users can inspect names without toggling their reaction.
++            count.setAttribute('aria-label', `Who reacted ${reaction.emoji}`);
++            count.classList.add('communityReactionCount');
++            renderEmojiText(pill, reaction.emoji);
++            host.append(pill, count);
++        });
++        const picker = document.createElement('div');
++        picker.className = 'communityReactionPicker'; picker.hidden = true;
++        picker.setAttribute('role', 'group'); picker.setAttribute('aria-label', 'Select a reaction');
++        [...FACES, ...EXTRAS].forEach(([emoji, label]) => {
++            const button = action('', () => change(emoji, !(message.reactions || []).some(r => r.emoji === emoji && r.mine)), 'communityEmojiChoice');
++            renderEmojiText(button, emoji); button.title = label; button.setAttribute('aria-label', label);
++            picker.append(button);
++        });
++        const toggle = action(scope === 'direct' ? '☺' : '☺ React', () => { picker.hidden = !picker.hidden; toggle.setAttribute('aria-expanded', String(!picker.hidden)); });
++        toggle.setAttribute('aria-label', 'React to message');
++        toggle.title = 'React to message';
++        toggle.setAttribute('aria-expanded', 'false');
++        picker.addEventListener('keydown', event => { if (event.key === 'Escape') { picker.hidden = true; toggle.focus(); toggle.setAttribute('aria-expanded','false'); } });
++        host.append(toggle, picker);
++    };
++    draw();
++    return host;
++}
+diff --git a/src/scripts/community/socialWidgets.test.ts b/src/scripts/community/socialWidgets.test.ts
+new file mode 100644
+index 0000000..3c973da
+--- /dev/null
++++ b/src/scripts/community/socialWidgets.test.ts
+@@ -0,0 +1,9 @@
++import { expect,test,vi } from 'vitest';
++vi.mock('./api',()=>({communityFetch:vi.fn()}));
++import { onlineDot,updateOnline } from './socialWidgets';
++
++test('message author dots reflect published presence and immediately disappear when invisible',()=> {
++    const dot=onlineDot('self'); document.body.append(dot);
++    updateOnline([{id:'self',name:'Self'}]); expect(dot.hidden).toBe(false); expect(dot.getAttribute('aria-label')).toBe('Online');
++    updateOnline([]); expect(dot.hidden).toBe(true); dot.remove();
++});
 diff --git a/src/scripts/libraryMenu.js b/src/scripts/libraryMenu.js
-index 7b818d4..29012b1 100644
+index 7b818d4..c899fd5 100644
 --- a/src/scripts/libraryMenu.js
 +++ b/src/scripts/libraryMenu.js
-@@ -25,6 +25,7 @@ import Dashboard, { pageClassOn } from '../utils/dashboard';
+@@ -25,6 +25,8 @@ import Dashboard, { pageClassOn } from '../utils/dashboard';
  import Events from '../utils/events.ts';
  import { getParameterByName } from '../utils/url.ts';
  import datetime from '../scripts/datetime';
 +import { initializePresence } from './community/presence';
++import { resetChat } from './community/chat';
  
  import '../elements/emby-button/paper-icon-button-light';
  
-@@ -42,6 +43,7 @@ function renderHeader() {
+@@ -42,6 +44,7 @@ function renderHeader() {
      html += '<h3 class="pageTitle" aria-hidden="true"></h3>';
      html += '</div>';
      html += '<div class="headerRight">';
@@ -6375,7 +7318,7 @@ index 7b818d4..29012b1 100644
      html += '<button is="paper-icon-button-light" class="headerSyncButton syncButton headerButton headerButtonRight hide"><span class="material-icons groups" aria-hidden="true"></span></button>';
      html += '<span class="headerSelectedPlayer"></span>';
      html += '<button is="paper-icon-button-light" class="headerAudioPlayerButton audioPlayerButton headerButton headerButtonRight hide"><span class="material-icons music_note" aria-hidden="true"></span></button>';
-@@ -69,6 +71,8 @@ function renderHeader() {
+@@ -69,6 +72,8 @@ function renderHeader() {
      headerSearchButton = skinHeader.querySelector('.headerSearchButton');
      headerSyncButton = skinHeader.querySelector('.headerSyncButton');
      currentTimeText = skinHeader.querySelector('.currentTimeText');
@@ -6384,7 +7327,7 @@ index 7b818d4..29012b1 100644
  
      retranslateUi();
      lazyLoadViewMenuBarImages();
-@@ -142,8 +146,10 @@ function updateUserInHeader(user) {
+@@ -142,8 +147,10 @@ function updateUserInHeader(user) {
          }
          headerUserButton.title = user.name;
          headerUserButton.classList.remove('hide');
@@ -6395,16 +7338,16 @@ index 7b818d4..29012b1 100644
      }
  
      if (!hasImage) {
-@@ -478,6 +484,8 @@ function updateLibraryMenu(user) {
+@@ -478,6 +485,8 @@ function updateLibraryMenu(user) {
                                      <span class="sectionName navMenuOptionText">${escapeHtml(i.Name)}</span>
                                    </a>`;
              }).join('');
 +            html += '<a is="emby-linkbutton" data-itemid="community" class="lnkMediaFolder navMenuOption" href="#/community"><span class="material-icons navMenuOptionIcon forum" aria-hidden="true"></span><span class="navMenuOptionText">Community</span></a>';
-+            html += '<a is="emby-linkbutton" data-itemid="request-media" class="lnkMediaFolder navMenuOption" href="#/request-media"><span class="material-icons navMenuOptionIcon add_to_queue" aria-hidden="true"></span><span class="navMenuOptionText">Request media</span></a>';
++            html += '<a is="emby-linkbutton" data-itemid="request-media" class="lnkMediaFolder navMenuOption" href="#/request-media"><span class="material-icons navMenuOptionIcon add_to_queue" aria-hidden="true"></span><span class="navMenuOptionText">Requests</span></a>';
              libraryMenuOptions.innerHTML = html;
              const elem = libraryMenuOptions;
              const sidebarLinks = elem.querySelectorAll('.navMenuOption');
-@@ -698,6 +706,7 @@ let headerCastButton;
+@@ -698,6 +707,7 @@ let headerCastButton;
  let headerSearchButton;
  let headerAudioPlayerButton;
  let headerSyncButton;
@@ -6412,6 +7355,22 @@ index 7b818d4..29012b1 100644
  let currentTimeText;
  const enableLibraryNavDrawer = layoutManager.desktop;
  const enableLibraryNavDrawerHome = !layoutManager.tv;
+@@ -827,6 +837,7 @@ Events.on(ServerConnections, 'apiclientcreated', (e, newApiClient) => {
+ });
+ 
+ Events.on(ServerConnections, 'localusersignedin', function (e, user) {
++    resetChat();
+     const currentApiClient = ServerConnections.getApiClient(user.ServerId);
+ 
+     currentDrawerType = null;
+@@ -843,6 +854,7 @@ Events.on(ServerConnections, 'localusersignedin', function (e, user) {
+ });
+ 
+ Events.on(ServerConnections, 'localusersignedout', function () {
++    resetChat();
+     currentUser = {};
+     updateUserInHeader();
+ });
 -- 
 2.43.0
 

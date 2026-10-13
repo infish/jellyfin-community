@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test --test-concurrency=1",
-    "check": "node --check src/server.js && node --check src/store.js"
+    "check": "node --check src/server.js && node --check src/store.js && node --check src/social.js && node --check src/requestBoard.js"
   },
   "dependencies": {
     "fastify": "5.12.5"

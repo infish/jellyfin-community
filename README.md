@@ -10,11 +10,17 @@ The browser still talks directly to Jellyfin for login, libraries, playback, byt
 
 ## Implemented behavior
 
+The unpushed chat expansion is available for local review; see [chat preview notes](docs/CHAT-PREVIEW.md). It is not installed on the NAS yet.
+
 - An Online now panel on Home and Community, with names, fitted avatars and green status markers. Lists refresh every five seconds; foreground heartbeats occur every 30 seconds and expire after 90 seconds.
 - A prominent account-wide “Remain invisible” switch that immediately removes active presence and persists across reloads.
 - A SQLite board with 500-code-point messages, five posts per minute, stable cursor pagination, author deletion, and current Jellyfin-administrator moderation. Content is rendered with `textContent`.
 - Community and Request media routes and navigation items, plus a three-message Community preview above My Media. Opposing arrows advance through up to five additional messages per hold.
 - Authenticated profile pictures beside authors, with initials fallback, and a composer emoji picker containing basic faces, the Israel flag and a juice box.
+- Private conversations with desktop and mobile chat panels, unread counts, history, quoted replies, emoji reactions, mute and block controls. No read receipts, typing indicators, or sender-visible unread markers.
+- Reactions and quoted replies on community posts, including replies themselves. Online dots beside authors respect the existing invisible preference and five-second updates.
+- Each person can have one reaction per message; picking a different emoji replaces the previous one. Existing stacked reactions migrate to the most recently added reaction.
+- A manual movie/show request board appears below Community on Home. TMDB title search, a user-scoped Jellyfin library check before submission, season selection, grouped requests, status filters, and owner/admin removal work independently of Seerr. Administrators connect TMDB through the Requests page; credentials are stored privately in the data volume.
 - A narrow Seerr adapter. It validates every operation through Jellyfin `/Users/Me`, strips browser impersonation headers, maps by verified Jellyfin UUID, always supplies both `X-Api-Key` and `X-API-User`, and exposes sanitized DTOs.
 - Conservative discovery eligibility, exact TV season selection, standard/non-4K requests, server-side permission checks, an idempotency ledger, one active title guard, and explicit uncertain outcomes after timeouts.
 - Independent presence, board, and request switches. Requests default off and cannot run against real services until `LIVE_COMPAT_VERIFIED=true` is deliberately set after the live gate.

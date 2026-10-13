@@ -22,6 +22,8 @@ export const config = {
     presenceEnabled: flag('PRESENCE_ENABLED', true),
     boardEnabled: flag('BOARD_ENABLED', true),
     requestsEnabled: flag('REQUESTS_ENABLED', false),
+    requestBoardEnabled: flag('REQUEST_BOARD_ENABLED', true),
+    tmdbReadToken: process.env.TMDB_READ_TOKEN || '',
     liveCompatibilityVerified: flag('LIVE_COMPAT_VERIFIED', false),
     mockUpstreams: flag('MOCK_UPSTREAMS', false),
     upstreamTimeoutMs: Math.min(Number(process.env.UPSTREAM_TIMEOUT_MS || 5000), 15000),

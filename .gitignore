@@ -11,3 +11,4 @@ backups/
 *.log
 seerr-data/
 community-data/
+**/catalog-credentials.json*

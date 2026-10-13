@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { config as defaultConfig } from './config.js';
 import { Store } from './store.js';
 import { Upstreams } from './upstreams.js';
+import { registerSocial } from './social.js';
+import { registerRequestBoard } from './requestBoard.js';
 
 const cleanText = value => typeof value === 'string' ? value.trim() : '';
 const codePoints = value => [...value].length;
@@ -27,6 +29,7 @@ export function buildServer(overrides = {}) {
         delete request.headers['x-api-key'];
         delete request.headers['x-api-user'];
         request.communityUser = await upstreams.authenticate(request.headers.authorization);
+        store.social.remember(request.communityUser);
     });
     app.addHook('preHandler', async request => {
         if (!request.communityUser) return;
@@ -35,7 +38,7 @@ export function buildServer(overrides = {}) {
         const bucket = rateBuckets.get(key);
         if (!bucket || now - bucket.startedAt >= 60_000) {
             rateBuckets.set(key, { startedAt: now, count: 1 });
-        } else if (++bucket.count > 120) {
+        } else if (++bucket.count > 300) {
             throw Object.assign(new Error('Request limit reached; try again in a minute'), { statusCode: 429 });
         }
     });
@@ -45,6 +48,8 @@ export function buildServer(overrides = {}) {
 
     const requireFeature = (enabled, name) => { if (!enabled) throw Object.assign(new Error(`${name} is disabled`), { statusCode: 503 }); };
     const requireDiscovery = user => { requireFeature(config.requestsEnabled && (config.mockUpstreams || config.liveCompatibilityVerified), 'Requests'); if (!upstreams.isDiscoveryEligible(user)) throw Object.assign(new Error('External discovery is unavailable for this account'), { statusCode: 403 }); };
+    registerSocial(app, store, upstreams, config);
+    registerRequestBoard(app, store, upstreams, config);
 
     app.put('/api/community/presence/heartbeat', async request => {
         requireFeature(config.presenceEnabled, 'Presence');
@@ -62,7 +67,7 @@ export function buildServer(overrides = {}) {
     });
     app.put('/api/community/presence/preference', async request => { requireFeature(config.presenceEnabled, 'Presence'); if (typeof request.body?.visible !== 'boolean') throw Object.assign(new Error('visible must be boolean'), { statusCode: 400 }); store.setPresenceVisible(request.communityUser.id, request.body.visible); return { visible: request.body.visible }; });
 
-    app.get('/api/community/messages', async request => { requireFeature(config.boardEnabled, 'Board'); const cursor = cleanText(request.query?.cursor); if (cursor && !/^\d+:[0-9a-f-]{36}$/.test(cursor)) throw Object.assign(new Error('Invalid cursor'), { statusCode: 400 }); return store.listMessages(cursor || null); });
+    app.get('/api/community/messages', async request => { requireFeature(config.boardEnabled, 'Board'); const cursor = cleanText(request.query?.cursor); if (cursor && !/^\d+:[0-9a-f-]{36}$/.test(cursor)) throw Object.assign(new Error('Invalid cursor'), { statusCode: 400 }); const data = store.listMessages(cursor || null); return { ...data, items: data.items.map(m => store.social.enrichBoard(m,request.communityUser)) }; });
     app.get('/api/community/messages/:id/avatar', async (request, reply) => {
         requireFeature(config.boardEnabled, 'Board');
         const authorId = store.messageAuthor(request.params.id);
@@ -70,7 +75,7 @@ export function buildServer(overrides = {}) {
         const avatar = await upstreams.avatar(authorId, request.headers.authorization);
         return reply.header('Cache-Control', 'private, no-store').type(avatar.type).send(avatar.body);
     });
-    app.post('/api/community/messages', async (request, reply) => { requireFeature(config.boardEnabled, 'Board'); const body = cleanText(request.body?.body); if (!body || codePoints(body) > 500) throw Object.assign(new Error('Message must be 1–500 characters'), { statusCode: 400 }); const item = store.createMessage(request.communityUser, body); if (!item) throw Object.assign(new Error('Post limit reached; try again in a minute'), { statusCode: 429 }); return reply.code(201).send(item); });
+    app.post('/api/community/messages', async (request, reply) => { requireFeature(config.boardEnabled, 'Board'); const body = cleanText(request.body?.body); if (!body || codePoints(body) > 500) throw Object.assign(new Error('Message must be 1–500 characters'), { statusCode: 400 }); const replyTo = cleanText(request.body?.replyTo) || null; if (replyTo) store.social.boardMessage(replyTo); const item = store.createMessage(request.communityUser, body, replyTo); if (!item) throw Object.assign(new Error('Post limit reached; try again in a minute'), { statusCode: 429 }); return reply.code(201).send(store.social.enrichBoard(item,request.communityUser)); });
     app.delete('/api/community/messages/:id', async (request, reply) => { requireFeature(config.boardEnabled, 'Board'); const result = store.deleteMessage(request.communityUser, request.params.id); if (result === 'missing') return reply.code(404).send({ error: 'Message not found' }); if (result === 'forbidden') return reply.code(403).send({ error: 'Not permitted' }); return { ok: true }; });
 
     app.get('/api/community/requests/search', async request => { requireDiscovery(request.communityUser); const q = cleanText(request.query?.q); const page = Math.max(1, Math.min(50, Number(request.query?.page || 1))); if (q.length < 2 || q.length > 100) throw Object.assign(new Error('Search must be 2–100 characters'), { statusCode: 400 }); const mapped = await upstreams.mappedUser(request.communityUser); const data = await upstreams.search(mapped, q, page); return { page: data.page || page, totalPages: data.totalPages || 1, items: (data.results || []).filter(x => ['movie', 'tv'].includes(x.mediaType)).map(minimalSearch) }; });

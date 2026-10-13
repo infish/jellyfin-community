@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
+import { Social } from './social.js';
 
 export class Store {
     constructor(path, now = () => Date.now()) {
@@ -7,6 +8,7 @@ export class Store {
         this.now = now;
         this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
         this.migrate();
+        this.social = new Social(this);
     }
 
     migrate() {
@@ -85,13 +87,13 @@ export class Store {
             FROM presence GROUP BY user_id ORDER BY display_name COLLATE NOCASE`).all();
     }
 
-    createMessage(user, body) {
+    createMessage(user, body, replyTo = null) {
         const now = this.now();
         const recent = this.db.prepare('SELECT COUNT(*) count FROM messages WHERE author_id=? AND created_at>?').get(user.id, now - 60_000).count;
         if (recent >= 5) return null;
         const message = { id: randomUUID(), authorId: user.id, displayName: user.name, body, createdAt: now };
-        this.db.prepare('INSERT INTO messages(id,author_id,display_name,body,created_at) VALUES(?,?,?,?,?)')
-            .run(message.id, message.authorId, message.displayName, message.body, message.createdAt);
+        this.db.prepare('INSERT INTO messages(id,author_id,display_name,body,created_at,reply_to) VALUES(?,?,?,?,?,?)')
+            .run(message.id, message.authorId, message.displayName, message.body, message.createdAt, replyTo);
         return message;
     }
 

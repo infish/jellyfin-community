@@ -8,3 +8,4 @@ backups
 release
 **/*.sqlite*
 **/*.log
+**/catalog-credentials.json*

@@ -38,3 +38,10 @@ authors: https://github.com/seerr-team/seerr
 
 Jellyfin Server, Sonarr and Radarr are externally managed services and are not
 redistributed as part of our images.
+# TMDB catalogue and branding
+
+The request board uses The Movie Database API and images under TMDB's API terms.
+Its official unmodified logo is from https://www.themoviedb.org/about/logos-attribution.
+The logo and catalogue content remain the property of their respective owners;
+they are not relicensed as GPL project artwork. The request page includes the
+required attribution notice and approved logo. API credentials are kept private.

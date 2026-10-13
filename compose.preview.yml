@@ -1,0 +1,25 @@
+# Local review only. Isolated database; no deployment or publication.
+name: jellyfin-community-preview
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    ports: ["127.0.0.1:8081:8080"]
+    environment:
+      JELLYFIN_UPSTREAM: http://192.168.0.3:8096
+  community:
+    build: ./backend
+    environment:
+      DATABASE_PATH: /data/community.sqlite
+      JELLYFIN_URL: http://192.168.0.3:8096
+      BOARD_ENABLED: "true"
+      PRESENCE_ENABLED: "true"
+      REQUESTS_ENABLED: "false"
+      MOCK_UPSTREAMS: "false"
+      PREVIEW_ONLY: "true"
+      REQUEST_BOARD_ENABLED: "true"
+      TMDB_READ_TOKEN: "${TMDB_READ_TOKEN:-}"
+    volumes: ["preview-data:/data"]
+volumes:
+  preview-data:
