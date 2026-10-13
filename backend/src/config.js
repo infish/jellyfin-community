@@ -23,6 +23,8 @@ export const config = {
     boardEnabled: flag('BOARD_ENABLED', true),
     requestsEnabled: flag('REQUESTS_ENABLED', false),
     requestBoardEnabled: flag('REQUEST_BOARD_ENABLED', true),
+    jellyfinLibraryApiKey: process.env.JELLYFIN_LIBRARY_API_KEY || '',
+    requestSyncIntervalMs: 300_000,
     tmdbReadToken: process.env.TMDB_READ_TOKEN || '',
     liveCompatibilityVerified: flag('LIVE_COMPAT_VERIFIED', false),
     mockUpstreams: flag('MOCK_UPSTREAMS', false),

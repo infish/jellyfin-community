@@ -4,6 +4,7 @@ import { dirname,join } from 'node:path';
 
 const fail=(message,statusCode=400)=> {throw Object.assign(new Error(message),{statusCode});};
 const TYPES=['movie','tv'];
+export const COMPLETION_DELAY=72*60*60*1000;
 export const REQUEST_STATES=['requested','in_progress','available','declined'];
 const clean=value=>typeof value==='string' ? value.trim() : '';
 const normalized=value=>clean(value).normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
@@ -11,7 +12,7 @@ const normalized=value=>clean(value).normalize('NFKC').toLocaleLowerCase().repla
 export class RequestBoard {
     constructor(store,upstreams,config) {
         this.store=store; this.db=store.db; this.upstreams=upstreams; this.config=config;
-        this.detailsCache=new Map(); this.inventoryCache=new Map();
+        this.detailsCache=new Map(); this.inventoryCache=new Map(); this.lastSync=new Map(); this.syncing=false;
         this.credentialPath=config.databasePath===':memory:' ? null : join(dirname(config.databasePath),'catalog-credentials.json');
         if (!config.tmdbReadToken && this.credentialPath) {
             try {this.config.tmdbReadToken=JSON.parse(readFileSync(this.credentialPath,'utf8')).tmdbReadToken || '';}
@@ -24,6 +25,82 @@ export class RequestBoard {
             CREATE INDEX IF NOT EXISTS request_board_order ON request_board(created_at DESC,id DESC);
             CREATE UNIQUE INDEX IF NOT EXISTS request_board_person_title ON request_board(author_id,media_type,media_id) WHERE removed_at IS NULL;
             INSERT OR IGNORE INTO migrations VALUES(4,datetime('now'));`);
+        this.migrateCompletion(); this.loadLibraryCredential();
+    }
+    // Migration keeps existing requests and starts no countdown without a library check.
+    migrateCompletion() {
+        const columns=this.db.prepare('PRAGMA table_info(request_board)').all();
+        if (!columns.some(c=>c.name==='available_at')) this.db.exec('ALTER TABLE request_board ADD COLUMN available_at INTEGER');
+        this.db.exec("INSERT OR IGNORE INTO migrations VALUES(5,datetime('now'))");
+    }
+    loadLibraryCredential() {
+        this.libraryCredentialPath=this.credentialPath ? join(dirname(this.credentialPath),'library-credentials.json') : null;
+        this.libraryApiKey=this.config.jellyfinLibraryApiKey || '';
+        if (!this.libraryApiKey && this.libraryCredentialPath) {
+            try {this.libraryApiKey=JSON.parse(readFileSync(this.libraryCredentialPath,'utf8')).apiKey || '';}
+            catch (error) {if(error.code!=='ENOENT') this.libraryCredentialError=true;}
+        }
+    }
+    async identifiers(user,id) {
+        this.access(user); if (!user.isAdmin) fail('Only administrators can view catalogue identifiers',403);
+        const row=this.db.prepare('SELECT media_type,media_id FROM request_board WHERE id=? AND removed_at IS NULL').get(id);
+        if (!row) fail('Request not found',404);
+        const title=await this.details(user,row.media_type,row.media_id);
+        const imdb=/^tt[0-9]{7,10}$/.test(title.providerIds.imdb || '') ? title.providerIds.imdb : null;
+        return {imdb,imdbUrl:imdb ? `https://www.imdb.com/title/${imdb}/` : null,tmdb:String(row.media_id),tmdbUrl:`https://www.themoviedb.org/${row.media_type}/${row.media_id}`};
+    }
+    async reconcile(user,header) {
+        this.access(user);
+        const rows=this.db.prepare("SELECT * FROM request_board WHERE author_id=? AND removed_at IS NULL AND status!='declined'").all(user.id);
+        for (const key of this.inventoryCache.keys()) if(key.startsWith(`${user.id}:`)) this.inventoryCache.delete(key);
+        for (const row of rows) {
+            if(this.closed) break;
+            try {
+                const title=await this.details(user,row.media_type,row.media_id);
+                const library=await this.check(user,header,title);
+                if(library.state==='needs_check') continue;
+                const requested=JSON.parse(row.seasons);
+                const seasons=requested.map(n=>library.seasons.find(season=>season.number===n));
+                if(row.media_type==='tv' && (!seasons.length || seasons.some(season=>!season || !season.total))) continue;
+                const complete=row.media_type==='movie' ? library.state==='available' : seasons.every(season=>season.state==='available');
+                const partial=row.media_type==='tv' && seasons.some(season=>season.present>0);
+                if(this.closed) break;
+                const current=this.db.prepare('SELECT * FROM request_board WHERE id=? AND removed_at IS NULL').get(row.id);
+                // An administrator or requester may have changed the entry during upstream calls.
+                if(!current || current.status!==row.status || current.seasons!==row.seasons || current.updated_at!==row.updated_at) continue;
+                const now=this.store.now();
+                if(complete) {
+                    const availableAt=current.available_at ?? now;
+                    if(current.status==='available' && current.available_at!=null && now>=availableAt+COMPLETION_DELAY) {
+                        this.db.prepare('UPDATE request_board SET removed_at=?,updated_at=? WHERE id=?').run(now,now,row.id);
+                    } else this.db.prepare("UPDATE request_board SET status='available',available_at=?,updated_at=? WHERE id=?").run(availableAt,now,row.id);
+                } else {
+                    const status=partial ? 'in_progress' : current.status==='available' ? 'requested' : current.status;
+                    this.db.prepare('UPDATE request_board SET status=?,available_at=NULL,updated_at=? WHERE id=?').run(status,now,row.id);
+                }
+            } catch { /* Failed or incomplete checks never complete or remove a request. */ }
+        }
+    }
+    async reconcileCaller(user,header) {
+        if(this.syncing || (this.lastSync.get(user.id) ?? -Infinity)>this.store.now()-60_000) return;
+        this.syncing=true;
+        try {await this.reconcile(user,header); this.lastSync.set(user.id,this.store.now());}
+        finally {this.syncing=false;}
+    }
+    async reconcileBackground() {
+        if(this.syncing || !this.libraryApiKey || !this.config.requestBoardEnabled) return;
+        this.syncing=true;
+        try {
+            const people=this.db.prepare("SELECT DISTINCT author_id FROM request_board WHERE removed_at IS NULL AND status!='declined'").all();
+            for(const person of people) {
+                if(this.closed) break;
+                try {
+                    const data=await this.upstreams.json(`${this.config.jellyfinUrl}/Users/${encodeURIComponent(person.author_id)}`,{headers:this.headers(`Bearer ${this.libraryApiKey}`)});
+                    if(data.Id!==person.author_id || data.Policy?.IsDisabled || !this.upstreams.isDiscoveryEligible({policy:data.Policy})) continue;
+                    await this.reconcile({id:data.Id,name:data.Name,isAdmin:data.Policy?.IsAdministrator===true,policy:data.Policy},`Bearer ${this.libraryApiKey}`);
+                } catch { /* Deleted, disabled, restricted, and unreachable accounts are skipped. */ }
+            }
+        } finally {this.syncing=false;}
     }
     access(user) {
         if (!this.config.requestBoardEnabled) fail('Request board is disabled',503);
@@ -66,6 +143,7 @@ export class RequestBoard {
         const cached=this.inventoryCache.get(key); if (!fresh && cached?.expires>Date.now()) return cached.items;
         const items=[];
         for (let start=0;start<5000;start+=250) {
+            if(this.closed) fail('Library check paused for restart',503);
             const params={UserId:user.id,Recursive:'true',IncludeItemTypes:parentId ? 'Episode' : type==='movie' ? 'Movie' : 'Series',Fields:'ProviderIds,LocationType',Limit:'250',StartIndex:String(start),EnableImages:'false',EnableUserData:'false',EnableTotalRecordCount:'true'};
             if (parentId) params.ParentId=parentId;
             const data=await this.upstreams.json(`${this.config.jellyfinUrl}/Items?${new URLSearchParams(params)}`,{headers:this.headers(header)});
@@ -108,7 +186,7 @@ export class RequestBoard {
             const key=`${r.media_type}:${r.media_id}`;
             if (!groups.has(key)) groups.set(key,{mediaType:r.media_type,mediaId:r.media_id,title:r.title,year:r.year,
                 posterUrl:r.poster_path ? `/api/community/catalog/artwork?path=${encodeURIComponent(r.poster_path)}` : null,requests:[]});
-            groups.get(key).requests.push({id:r.id,authorId:r.author_id,displayName:r.display_name,seasons:JSON.parse(r.seasons),status:r.status,createdAt:r.created_at,canRemove:r.author_id===user.id || user.isAdmin});
+            groups.get(key).requests.push({id:r.id,authorId:r.author_id,displayName:r.display_name,seasons:JSON.parse(r.seasons),status:r.status,createdAt:r.created_at,availableAt:r.available_at,removeAfter:r.status==='available' && r.available_at!=null ? r.available_at+COMPLETION_DELAY : null,canRemove:r.author_id===user.id || user.isAdmin});
         }
         return {items:[...groups.values()]};
     }
@@ -126,7 +204,7 @@ export class RequestBoard {
         }
         const existing=this.db.prepare('SELECT id,seasons,status FROM request_board WHERE author_id=? AND media_type=? AND media_id=? AND removed_at IS NULL').get(user.id,title.mediaType,title.mediaId);
         if (existing) {
-            if (title.mediaType==='tv') this.db.prepare('UPDATE request_board SET seasons=?,updated_at=?,status=? WHERE id=?').run(JSON.stringify([...new Set([...JSON.parse(existing.seasons),...seasons])].sort((a,b)=>a-b)),this.store.now(),existing.status==='declined' || existing.status==='available' ? 'requested' : existing.status,existing.id);
+            if (title.mediaType==='tv') this.db.prepare('UPDATE request_board SET seasons=?,updated_at=?,status=?,available_at=NULL WHERE id=?').run(JSON.stringify([...new Set([...JSON.parse(existing.seasons),...seasons])].sort((a,b)=>a-b)),this.store.now(),existing.status==='declined' || existing.status==='available' ? 'requested' : existing.status,existing.id);
             return {id:existing.id,existing:true};
         }
         const recent=this.db.prepare('SELECT COUNT(*) n FROM request_board WHERE author_id=? AND created_at>?').get(user.id,this.store.now()-60_000).n;
@@ -146,7 +224,10 @@ export class RequestBoard {
 
 export function registerRequestBoard(app,store,upstreams,config) {
     const board=new RequestBoard(store,upstreams,config);
-    app.get('/api/community/request-board/config',async r=> {board.access(r.communityUser);return {catalogReady:!!config.tmdbReadToken,isAdmin:r.communityUser.isAdmin,setupError:board.credentialError ? 'Saved catalogue access could not be read. Reconnect TMDB.' : null};});
+    app.decorate('requestBoard',board);
+    app.addHook('onReady',async()=> {if(config.requestSyncIntervalMs!==0) {board.timer=setInterval(()=>void board.reconcileBackground(),config.requestSyncIntervalMs || 300_000); board.timer.unref(); void board.reconcileBackground();}});
+    app.addHook('onClose',async()=> {board.closed=true; clearInterval(board.timer); while(board.syncing) await new Promise(resolve=>setTimeout(resolve,10));});
+    app.get('/api/community/request-board/config',async r=> {board.access(r.communityUser);return {catalogReady:!!config.tmdbReadToken,isAdmin:r.communityUser.isAdmin,setupError:board.credentialError ? 'Saved catalogue access could not be read. Reconnect TMDB.' : null,...(r.communityUser.isAdmin ? {backgroundReady:!!board.libraryApiKey} : {})};});
     app.put('/api/community/request-board/config',async r=> {
         board.access(r.communityUser); if (!r.communityUser.isAdmin) fail('Only administrators can connect TMDB',403);
         const token=clean(r.body?.token);
@@ -163,13 +244,29 @@ export function registerRequestBoard(app,store,upstreams,config) {
         }
         config.tmdbReadToken=token; board.credentialError=false; board.detailsCache.clear(); return {catalogReady:true};
     });
-    app.get('/api/community/request-board',async r=>board.list(r.communityUser));
+    app.put('/api/community/request-board/library-config',async r=> {
+        board.access(r.communityUser); if(!r.communityUser.isAdmin) fail('Only administrators can connect background library checks',403);
+        const apiKey=clean(r.body?.apiKey);
+        if(!/^[a-zA-Z0-9_-]{20,128}$/.test(apiKey)) fail('Enter a Jellyfin API key');
+        try {
+            const users=await upstreams.json(`${config.jellyfinUrl}/Users`,{headers:board.headers(`Bearer ${apiKey}`)});
+            if(!Array.isArray(users) || !users.some(user=>user.Id===r.communityUser.id && user.Policy?.IsAdministrator && !user.Policy?.IsDisabled)) throw new Error('Invalid API access');
+        } catch {fail('Jellyfin did not accept this key for background library checks',400);}
+        if(board.libraryCredentialPath) {
+            const temp=board.libraryCredentialPath+'.new';
+            try {writeFileSync(temp,JSON.stringify({apiKey}),{mode:0o600}); renameSync(temp,board.libraryCredentialPath);}
+            catch {try {unlinkSync(temp);} catch {} fail('Could not save library access',503);}
+        }
+        board.libraryApiKey=apiKey; return {backgroundReady:true};
+    });
+    app.get('/api/community/request-board/:id/identifiers',async r=>board.identifiers(r.communityUser,r.params.id));
+    app.get('/api/community/request-board',async r=> {board.access(r.communityUser); await board.reconcileCaller(r.communityUser,r.headers.authorization); return board.list(r.communityUser);});
     app.post('/api/community/request-board',async (r,response)=>response.code(201).send(await board.add(r.communityUser,r.headers.authorization,r.body)));
     app.delete('/api/community/request-board/:id',async r=>board.remove(r.communityUser,r.params.id));
     app.put('/api/community/request-board/:id/status',async r=> {
         board.access(r.communityUser); if (!r.communityUser.isAdmin) fail('Only administrators can change request status',403);
         if (!REQUEST_STATES.includes(r.body?.status)) fail('Invalid status');
-        const result=board.db.prepare('UPDATE request_board SET status=?,updated_at=? WHERE id=? AND removed_at IS NULL').run(r.body.status,store.now(),r.params.id);
+        const result=board.db.prepare('UPDATE request_board SET status=?,updated_at=?,available_at=NULL WHERE id=? AND removed_at IS NULL').run(r.body.status,store.now(),r.params.id);
         if (!result.changes) fail('Request not found',404);return {ok:true};
     });
     app.get('/api/community/catalog/search',async r=>board.search(r.communityUser,r.query.type,clean(r.query.q),Math.max(1,Math.min(500,Number(r.query.page)||1))));

@@ -1,66 +1,3 @@
-From baef893ad9e935b49dd1257f6bd05a83bfc58e4a Mon Sep 17 00:00:00 2001
-From: Jellyfin Household Maintainer <maintainer@localhost>
-Date: Mon, 14 Sep 2026 16:12:25 +0200
-Subject: [PATCH] Add household community interface
-
----
- package-lock.json                             | 2912 ++++++++++-------
- package.json                                  |   13 +-
- src/apps/legacy/controllers/community.html    |   19 +
- src/apps/legacy/controllers/community.js      |  131 +
- src/apps/legacy/controllers/hometab.js        |   19 +
- src/apps/legacy/controllers/requestmedia.html |   13 +
- src/apps/legacy/controllers/requestmedia.js   |  142 +
- src/apps/legacy/routes/legacyRoutes/user.ts   |   12 +
- .../components/drawers/MainDrawerContent.tsx  |   18 +
- src/apps/modern/routes/legacyRoutes/user.ts   |   12 +
- src/assets/img/tmdb-logo.svg                  |  Bin 0 -> 2065 bytes
- src/scripts/community/api.js                  |   67 +
- src/scripts/community/chat.js                 |  263 ++
- src/scripts/community/chat.test.ts            |   69 +
- src/scripts/community/community.scss          |  188 ++
- src/scripts/community/emojiDisplay.js         |   30 +
- src/scripts/community/emojiDisplay.test.ts    |   13 +
- src/scripts/community/emojiPicker.js          |   83 +
- src/scripts/community/emojiPicker.test.ts     |   29 +
- src/scripts/community/holdAdvance.js          |   28 +
- src/scripts/community/holdAdvance.test.ts     |   29 +
- src/scripts/community/online.js               |  142 +
- src/scripts/community/online.test.ts          |   72 +
- src/scripts/community/presence.js             |  112 +
- src/scripts/community/presence.test.ts        |   25 +
- src/scripts/community/preview.js              |  168 +
- src/scripts/community/requestBoard.js         |   69 +
- src/scripts/community/requestBoard.test.ts    |   71 +
- src/scripts/community/socialWidgets.js        |  104 +
- src/scripts/community/socialWidgets.test.ts   |    9 +
- src/scripts/libraryMenu.js                    |   12 +
- 31 files changed, 3690 insertions(+), 1184 deletions(-)
- create mode 100644 src/apps/legacy/controllers/community.html
- create mode 100644 src/apps/legacy/controllers/community.js
- create mode 100644 src/apps/legacy/controllers/requestmedia.html
- create mode 100644 src/apps/legacy/controllers/requestmedia.js
- create mode 100644 src/assets/img/tmdb-logo.svg
- create mode 100644 src/scripts/community/api.js
- create mode 100644 src/scripts/community/chat.js
- create mode 100644 src/scripts/community/chat.test.ts
- create mode 100644 src/scripts/community/community.scss
- create mode 100644 src/scripts/community/emojiDisplay.js
- create mode 100644 src/scripts/community/emojiDisplay.test.ts
- create mode 100644 src/scripts/community/emojiPicker.js
- create mode 100644 src/scripts/community/emojiPicker.test.ts
- create mode 100644 src/scripts/community/holdAdvance.js
- create mode 100644 src/scripts/community/holdAdvance.test.ts
- create mode 100644 src/scripts/community/online.js
- create mode 100644 src/scripts/community/online.test.ts
- create mode 100644 src/scripts/community/presence.js
- create mode 100644 src/scripts/community/presence.test.ts
- create mode 100644 src/scripts/community/preview.js
- create mode 100644 src/scripts/community/requestBoard.js
- create mode 100644 src/scripts/community/requestBoard.test.ts
- create mode 100644 src/scripts/community/socialWidgets.js
- create mode 100644 src/scripts/community/socialWidgets.test.ts
-
 diff --git a/package-lock.json b/package-lock.json
 index c8a45f3..1784af4 100644
 --- a/package-lock.json
@@ -5337,10 +5274,10 @@ index 4f73a82..3a59a51 100644
      destroyHomeSections() {
 diff --git a/src/apps/legacy/controllers/requestmedia.html b/src/apps/legacy/controllers/requestmedia.html
 new file mode 100644
-index 0000000..7726d6e
+index 0000000..9993251
 --- /dev/null
 +++ b/src/apps/legacy/controllers/requestmedia.html
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +<div id="requestMediaPage" data-role="page" class="page libraryPage communityPage requestBoardPage" data-title="Requests">
 +    <div class="requestBoardPageHeading"><div><h1>Requests</h1><p class="communityMuted">Choose the correct movie or show. We check your library before adding it.</p></div><button type="button" class="communityAction requestAddButton">+ Add request</button></div>
 +    <p class="communityError" role="status"></p>
@@ -5352,14 +5289,15 @@ index 0000000..7726d6e
 +    </section>
 +    <section class="requestBoardListSection"><div class="requestBoardFilters"><h2>Request board</h2><select class="requestBoardFilter" aria-label="Filter request board"><option value="all">Movies and shows</option><option value="movie">Movies</option><option value="tv">Shows</option></select><select class="requestBoardState" aria-label="Request status"><option value="all">All statuses</option><option value="outstanding">Outstanding</option><option value="requested">Requested</option><option value="in_progress">In progress</option><option value="available">Available</option><option value="declined">Declined</option></select><label><input type="checkbox" class="requestBoardMine"> My requests</label></div><div class="requestBoardCards"></div><p class="requestBoardEmpty communityMuted"></p></section>
 +    <form class="requestTmdbSetup" hidden><h2>Connect title search · Admin only</h2><p>Get a developer API Read Access Token from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer">TMDB API settings</a>. Saved privately on this server.</p><label for="requestTmdbToken">TMDB API Read Access Token</label><input id="requestTmdbToken" type="password" autocomplete="off" spellcheck="false" maxlength="2048" required><button type="submit" class="communityAction requestTmdbSave">Save &amp; connect</button></form>
++    <form class="requestLibrarySetup" hidden><h2>Automatic library checks · Admin only</h2><p class="requestLibrarySyncStatus" role="status"></p><p>Connect a Jellyfin API key to check requests while everyone is offline. This key grants server access and is saved privately here. Checks respect each requester's library permissions. Available requests leave the board after three days only if still available.</p><label for="requestLibraryKey">Jellyfin API key</label><input id="requestLibraryKey" type="password" autocomplete="off" spellcheck="false" maxlength="128" required><button type="submit" class="communityAction requestLibrarySave">Connect automatic checks</button></form>
 +    <section class="requestCredits"><h2>Credits</h2><a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer"><img src="../../../assets/img/tmdb-logo.svg" alt="The Movie Database (TMDB)"></a><p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p></section>
 +</div>
 diff --git a/src/apps/legacy/controllers/requestmedia.js b/src/apps/legacy/controllers/requestmedia.js
 new file mode 100644
-index 0000000..4e8ab0b
+index 0000000..58d74fc
 --- /dev/null
 +++ b/src/apps/legacy/controllers/requestmedia.js
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,154 @@
 +import { communityFetch } from 'scripts/community/api';
 +import { action } from 'scripts/community/socialWidgets';
 +import { requestCard, requestPoster } from 'scripts/community/requestBoard';
@@ -5368,7 +5306,7 @@ index 0000000..4e8ab0b
 +export default class RequestMediaPage {
 +    constructor(view) {
 +        this.view=view; this.selected=null; this.items=[]; this.page=1; this.revision=0;
-+        this.show=()=>void this.onResume(); this.hide=()=> {this.active=false; clearInterval(this.timer); clearTimeout(this.searchTimer); this.searchController?.abort(); this.revision++; this.view.querySelector('#requestTmdbToken').value='';};
++        this.show=()=>void this.onResume(); this.hide=()=> {this.active=false; clearInterval(this.timer); clearTimeout(this.searchTimer); this.searchController?.abort(); this.revision++; this.view.querySelector('#requestTmdbToken').value=''; this.view.querySelector('#requestLibraryKey').value='';};
 +        view.addEventListener('viewshow',this.show); view.addEventListener('viewhide',this.hide);
 +        this.submitSearch=event=> {event.preventDefault(); void this.search(false);};
 +        this.typedSearch=()=> {
@@ -5387,6 +5325,7 @@ index 0000000..4e8ab0b
 +        view.querySelector('.requestBoardMine').addEventListener('change',()=>this.renderBoard());
 +        view.querySelector('.requestAddButton').addEventListener('click',()=> {view.querySelector('#requestQuery').focus(); view.querySelector('.requestSearchSection').scrollIntoView({block:'start',behavior:'smooth'});});
 +        view.querySelector('.requestTmdbSetup').addEventListener('submit',event=> {event.preventDefault(); void this.connect();});
++        view.querySelector('.requestLibrarySetup').addEventListener('submit',event=> {event.preventDefault(); void this.connectLibrary();});
 +        view.querySelector('.requestManualCheck').addEventListener('change',()=>this.updateConfirm());
 +    }
 +    error(message='') {if (this.view) this.view.querySelector('.communityError').textContent=message;}
@@ -5397,8 +5336,8 @@ index 0000000..4e8ab0b
 +        this.view.querySelector('.requestResults').replaceChildren();
 +        this.view.querySelector('.requestSelection').hidden=true;
 +        this.view.querySelector('.requestSearchMore').hidden=true;
-+        this.view.querySelector('.requestTmdbSetup').hidden=true;
-+        this.view.querySelector('#requestTmdbToken').value='';
++        this.view.querySelector('.requestTmdbSetup').hidden=true; this.view.querySelector('.requestLibrarySetup').hidden=true;
++        this.view.querySelector('#requestTmdbToken').value=''; this.view.querySelector('#requestLibraryKey').value='';
 +        this.view.querySelector('#requestQuery').disabled=true;
 +        this.view.querySelector('.requestSearchSubmit').disabled=true;
 +        this.view.querySelector('.requestCatalogNotice').textContent='Checking catalogue access…';
@@ -5410,9 +5349,19 @@ index 0000000..4e8ab0b
 +    }
 +    setupState() {
 +        this.view.querySelector('.requestTmdbSetup').hidden=!this.config.isAdmin;
++        this.view.querySelector('.requestLibrarySetup').hidden=!this.config.isAdmin;
++        this.view.querySelector('.requestLibrarySyncStatus').textContent=this.config.backgroundReady ? 'Automatic checks connected. Requests are checked every five minutes.' : 'Not connected. Your requests are checked when you open this board.';
 +        this.view.querySelector('.requestCatalogNotice').textContent=this.config.catalogReady ? '' : this.config.setupError || 'Title search is waiting for the administrator to connect TMDB. Existing requests remain visible.';
 +        this.view.querySelector('#requestQuery').disabled=!this.config.catalogReady;
 +        this.view.querySelector('.requestSearchSubmit').disabled=!this.config.catalogReady;
++    }
++    async connectLibrary() {
++        const revision=this.revision,input=this.view.querySelector('#requestLibraryKey'),button=this.view.querySelector('.requestLibrarySave'); button.disabled=true;
++        try {
++            await communityFetch('/request-board/library-config',{method:'PUT',body:JSON.stringify({apiKey:input.value})});
++            if(!this.active || revision!==this.revision) return;
++            input.value=''; this.config.backgroundReady=true; this.setupState(); this.error('Automatic library checks connected.');
++        } catch(error) {if(revision===this.revision) this.error(error.message);} finally {button.disabled=false;}
 +    }
 +    async connect() {
 +        const revision=this.revision;
@@ -5424,6 +5373,7 @@ index 0000000..4e8ab0b
 +        } catch(error) {this.error(error.message);} finally {button.disabled=false;}
 +    }
 +    async search(more) {
++        clearTimeout(this.searchTimer);
 +        if (!this.config?.catalogReady) return;
 +        const q=this.view.querySelector('#requestQuery').value.trim(); if (q.length<2) return;
 +        this.searchController?.abort(); this.searchController=new AbortController();
@@ -5687,11 +5637,12 @@ index 0000000..fbd4fc4
 +/* eslint-enable sonarjs/pseudo-random */
 diff --git a/src/scripts/community/chat.js b/src/scripts/community/chat.js
 new file mode 100644
-index 0000000..5e5b108
+index 0000000..3158dd9
 --- /dev/null
 +++ b/src/scripts/community/chat.js
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,265 @@
 +import { communityFetch, createId, profileAvatar } from './api';
++import { PlaybackChatPosition } from './playbackPosition';
 +import { EmojiPicker } from './emojiPicker';
 +import { renderEmojiText } from './emojiDisplay';
 +import { action, onlineDot, quotePreview, reactionBar, visibleMessageIds } from './socialWidgets';
@@ -5718,6 +5669,7 @@ index 0000000..5e5b108
 +        this.panel.className = 'communityChatPanel'; this.panel.hidden = true;
 +        this.panel.innerHTML = '<header class="communityChatHeader"><div class="communityChatTitle"></div><div class="communityChatControls"></div></header><div class="communityChatInbox"></div><div class="communityChatThread" hidden><div class="communityChatSettings"></div><button type="button" class="communityChatOlder" hidden>Load older messages</button><div class="communityChatMessages" role="log" aria-label="Conversation messages"></div><form class="communityChatComposer communityComposer"><div class="communityChatReply"></div><label for="communityChatInput">Message</label><textarea id="communityChatInput" required rows="2" maxlength="1000"></textarea><div class="communityComposerFooter"><button type="button" class="communityEmojiToggle" aria-label="Choose chat emoji" aria-expanded="false"><span>🙂</span> Emoji</button><span class="communityChatLength">0 / 500</span><button type="submit" class="communityChatSend">Send</button></div><div class="communityEmojiPicker" role="group" aria-label="Choose a chat emoji" hidden></div></form></div><p class="communityChatError" role="status"></p>';
 +        this.root.append(this.panel, this.launcher); document.body.append(this.root);
++        this.playbackPosition=new PlaybackChatPosition(this.root);
 +        this.input = this.panel.querySelector('textarea');
 +        this.picker = new EmojiPicker(this.panel, message => this.error(message));
 +        this.input.addEventListener('input', () => {
@@ -5949,18 +5901,19 @@ index 0000000..5e5b108
 +        } catch (error) { this.error(error.message); }
 +        finally { this.sending=false; this.renderSettings(); }
 +    }
-+    destroy() { clearInterval(this.timer); document.removeEventListener('communityopenchat',this.openHandler); document.removeEventListener('visibilitychange',this.visibilityHandler); this.picker.destroy(); this.root.remove(); }
++    destroy() { this.playbackPosition.destroy(); clearInterval(this.timer); document.removeEventListener('communityopenchat',this.openHandler); document.removeEventListener('visibilitychange',this.visibilityHandler); this.picker.destroy(); this.root.remove(); }
 +}
 +let dock;
 +export function initializeChat() { if (!dock || !dock.root.isConnected) dock=new ChatDock(); return dock; }
 +export function resetChat() { if (dock) { dock.reset(); dock.me=null; dock.root.hidden=true; } }
 diff --git a/src/scripts/community/chat.test.ts b/src/scripts/community/chat.test.ts
 new file mode 100644
-index 0000000..9943818
+index 0000000..09b57e4
 --- /dev/null
 +++ b/src/scripts/community/chat.test.ts
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,70 @@
 +import { afterEach, expect, test, vi } from 'vitest';
++vi.mock('./playbackPosition',()=>({PlaybackChatPosition:class {destroy() {}}}));
 +vi.mock('./api', () => ({ communityFetch:vi.fn(),createId:()=> 'aaaaaaaaaaaaaaaa',profileAvatar:()=>document.createElement('span') }));
 +import { communityFetch } from './api';
 +import { ChatDock } from './chat';
@@ -6031,10 +5984,10 @@ index 0000000..9943818
 +});
 diff --git a/src/scripts/community/community.scss b/src/scripts/community/community.scss
 new file mode 100644
-index 0000000..60171d1
+index 0000000..a9ac3cf
 --- /dev/null
 +++ b/src/scripts/community/community.scss
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,206 @@
 +.communityPresenceButton { width: auto !important; min-width: 3.2em; gap: .2em; padding-inline: .65em !important; }
 +.communityPresenceButton.communityUnavailable { opacity: .55; }
 +.communityPresenceLabel { font-size: .86em; }
@@ -6223,6 +6176,24 @@ index 0000000..60171d1
 +.requestCard:hover,.requestCard:focus-visible { background: #ffffff20; outline: 2px solid #00a4dc; }
 +.requestSeasons { display: grid; gap: .5em; margin: 1em 0; }
 +@media (max-width: 600px) { .communityPresenceLabel { display: none; } .communityPage { padding-top: 4.5em; } }
++
++.communityPreviewMessageLink { display: flex; flex-direction: column; gap: .55em; color: inherit; text-decoration: none; flex: 1; }
++.communityPreviewMessageLink > span { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.35; }
++.communityPreviewCard .communityReactions { font-size: .8em; margin-top: .1em; }
++.communityPreviewCard .communityReactionPicker { width: 100%; box-sizing: border-box; }
++.communityChatDock.communityChatPlayback { top: max(6em,env(safe-area-inset-top)); bottom: auto; right: max(1em,env(safe-area-inset-right)); }
++.communityChatPlayback .communityChatLauncher { order: -1; padding: .5em .85em; font-size: .85em; opacity: .65; margin-bottom: .6em; }
++.communityChatPlayback .communityChatLauncher:hover,.communityChatPlayback .communityChatLauncher:focus-visible { opacity: 1; }
++.communityChatPlayback .communityChatPanel { height: min(30em,calc(65dvh - 9em)); min-height: 0; margin-bottom: 0; }
++.requestIdentifiers { display: flex; flex-wrap: wrap; gap: .5em; align-items: center; font-size: .85em; margin: .5em 0; }
++.requestIdentifiers > small,.requestCleanupDate { flex-basis: 100%; color: #aaa; }
++.requestLibrarySetup { display: grid; gap: .7em; padding: 1.2em; border: 1px solid #ffffff20; border-radius: .8em; margin-top: 1.5em; }
++.requestLibrarySetup input { background: #171b22; color: inherit; border: 1px solid #ffffff35; border-radius: .4em; padding: .7em; }
++@media (max-width: 600px) { .communityChatPlayback .communityChatPanel { height: 100dvh; min-height: 0; } }
++
++@media (max-height: 500px) { .communityChatPlayback .communityChatPanel { position: fixed; inset: 0; width: 100%; height: 100dvh; margin: 0; border-radius: 0; } .communityChatPlayback .communityChatPanel:not([hidden]) + * { display: none; } }
++
++.communityChatDock.communityChatPlayback.communityChatControlsHidden .communityChatLauncher { opacity: 0; visibility: hidden; pointer-events: none; }
 diff --git a/src/scripts/community/emojiDisplay.js b/src/scripts/community/emojiDisplay.js
 new file mode 100644
 index 0000000..569594e
@@ -6848,13 +6819,13 @@ index 0000000..0c888eb
 +});
 diff --git a/src/scripts/community/preview.js b/src/scripts/community/preview.js
 new file mode 100644
-index 0000000..7b8d259
+index 0000000..24b2026
 --- /dev/null
 +++ b/src/scripts/community/preview.js
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,196 @@
 +import { communityFetch, messageAvatar } from './api';
 +import { renderEmojiText } from './emojiDisplay';
-+import { onlineDot } from './socialWidgets';
++import { onlineDot, reactionBar } from './socialWidgets';
 +import { OnlinePanel } from './online';
 +import { HoldAdvance } from './holdAdvance';
 +import 'elements/emby-scrollbuttons/emby-scrollbuttons.scss';
@@ -6867,7 +6838,8 @@ index 0000000..7b8d259
 +        this.container = container;
 +        this.timer = null;
 +        this.items = [];
-+        this.rendered = 0;
++        this.rendered = 0; this.revision=0; this.active=false;
++        this.changed=()=>void this.refreshReactions();
 +        this.cursor = null;
 +        this.browsing = false;
 +        this.loadingOlder = false;
@@ -6882,14 +6854,39 @@ index 0000000..7b8d259
 +        container.append(this.content, onlineHost);
 +        this.online = new OnlinePanel(onlineHost);
 +    }
++    async refreshReactions() {
++        if (!this.active || this.reactionsBusy || document.visibilityState!=='visible' || !this.scroller?.isConnected) return;
++        this.reactionsBusy=true; const revision=this.revision;
++        const cards=[...this.scroller.querySelectorAll('[data-message-id]')].slice(0,200);
++        try {
++            const data=await communityFetch('/messages/snapshot',{method:'POST',body:JSON.stringify({ids:cards.slice(0,200).map(card=>card.dataset.messageId)})});
++            if(!this.active || revision!==this.revision) return;
++            for(const message of data.items) {
++                const card=cards.find(row=>row.dataset.messageId===message.id);
++                const host=card?.querySelector('.communityReactions');
++                if(host && host.dataset.reactions!==JSON.stringify(message.reactions || []) && !host.contains(document.activeElement) && !host.querySelector('.communityReactionPicker:not([hidden])')) host.replaceWith(this.reactions(message));
++            }
++            const present=new Set(data.items.map(message=>message.id));
++            cards.forEach(card=> {if(!present.has(card.dataset.messageId)) card.remove();});
++        } catch { /* Keep the current cards during a transient outage. */ }
++        finally {this.reactionsBusy=false;}
++    }
++    reactions(message) {
++        const host=reactionBar(message,'board',text=> {this.status.textContent=text;});
++        host.dataset.reactions=JSON.stringify(message.reactions || []);
++        return host;
++    }
 +    async refresh() {
 +        if (this.browsing || document.visibilityState !== 'visible' || !this.container?.isConnected) return;
++        const revision=this.revision;
 +        try {
 +            const data = await communityFetch('/messages');
++            if(!this.active || revision!==this.revision) return;
 +            this.items = data.items;
 +            this.cursor = data.nextCursor;
 +            this.rendered = Math.min(3, this.items.length);
 +            const items = this.items.slice(0, this.rendered);
++            if(this.scroller?.contains(document.activeElement) || this.scroller?.querySelector('.communityReactionPicker:not([hidden])')) return;
 +            this.content.innerHTML = '';
 +            const heading = document.createElement('div');
 +            heading.className = 'sectionTitleContainer sectionTitleContainer-cards padded-left';
@@ -6950,7 +6947,8 @@ index 0000000..7b8d259
 +                empty.innerHTML = '<span class="material-icons forum" aria-hidden="true"></span><strong>Start the conversation</strong><span>Open the household message board</span>';
 +                scroller.append(empty);
 +            }
-+            this.content.append(heading, scroller);
++            this.status=document.createElement('p'); this.status.className='communityMuted'; this.status.setAttribute('role','status');
++            this.content.append(heading, scroller,this.status);
 +            this.updateArrow();
 +        } catch {
 +            this.content.textContent = 'Community preview unavailable';
@@ -6958,8 +6956,9 @@ index 0000000..7b8d259
 +        }
 +    }
 +    card(message) {
-+        const card = document.createElement('a');
-+        card.href = '#/community';
++        const card = document.createElement('article');
++        card.dataset.messageId=message.id;
++        const link=document.createElement('a'); link.href='#/community'; link.className='communityPreviewMessageLink';
 +        card.className = 'communityPreviewCard';
 +        const author = document.createElement('strong');
 +        author.textContent = message.displayName;
@@ -6971,7 +6970,7 @@ index 0000000..7b8d259
 +        const identity = document.createElement('div');
 +        identity.className = 'communityMessageIdentity';
 +        identity.append(messageAvatar(message), author, onlineDot(message.authorId));
-+        card.append(identity, text, time);
++        link.append(identity,text,time); card.append(link,this.reactions(message));
 +        return card;
 +    }
 +    cardWidth() {
@@ -7014,18 +7013,18 @@ index 0000000..7b8d259
 +            return false;
 +        }
 +    }
-+    resume() { this.browsing = false; window.addEventListener('pointerup', this.release); window.addEventListener('pointercancel', this.release); window.addEventListener('blur', this.release); this.online.resume(); void this.refresh(); clearInterval(this.timer); this.timer = setInterval(() => void this.refresh(), 30_000 + Math.floor(Math.random() * 2500)); }
-+    pause() { this.hold.stop(); window.removeEventListener('pointerup', this.release); window.removeEventListener('pointercancel', this.release); window.removeEventListener('blur', this.release); this.online.pause(); clearInterval(this.timer); this.timer = null; }
++    resume() { this.active=true; this.revision++; document.addEventListener('communitymessageschange',this.changed); this.reactionTimer=setInterval(()=>void this.refreshReactions(),5000); this.browsing = false; window.addEventListener('pointerup', this.release); window.addEventListener('pointercancel', this.release); window.addEventListener('blur', this.release); this.online.resume(); void this.refresh(); clearInterval(this.timer); this.timer = setInterval(() => void this.refresh(), 30_000 + Math.floor(Math.random() * 2500)); }
++    pause() { this.active=false; this.revision++; clearInterval(this.reactionTimer); document.removeEventListener('communitymessageschange',this.changed); this.hold.stop(); window.removeEventListener('pointerup', this.release); window.removeEventListener('pointercancel', this.release); window.removeEventListener('blur', this.release); this.online.pause(); clearInterval(this.timer); this.timer = null; }
 +    destroy() { this.pause(); this.container?.remove(); this.container = null; }
 +}
 +
 +/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/pseudo-random */
 diff --git a/src/scripts/community/requestBoard.js b/src/scripts/community/requestBoard.js
 new file mode 100644
-index 0000000..e112e26
+index 0000000..556c08f
 --- /dev/null
 +++ b/src/scripts/community/requestBoard.js
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,87 @@
 +import { communityFetch, profileAvatar } from './api';
 +import { action } from './socialWidgets';
 +import './community.scss';
@@ -7044,11 +7043,29 @@ index 0000000..e112e26
 +    const title=document.createElement('strong'); title.textContent=`${item.title}${item.year ? ` (${item.year})` : ''}`;
 +    const type=document.createElement('span'); type.className='communityMuted'; type.textContent=item.mediaType==='tv' ? 'Show' : 'Movie';
 +    const heading=document.createElement('div'); heading.append(title,type); identity.append(heading); card.append(identity);
++    if(!compact && me?.isAdmin) {
++        const identifiers=document.createElement('div'); identifiers.className='requestIdentifiers';
++        const button=action('Title IDs',async()=> {
++            button.disabled=true;
++            try {
++                const data=await communityFetch(`/request-board/${item.requests[0].id}/identifiers`);
++                identifiers.replaceChildren();
++                for(const [label,id,url] of [['IMDb',data.imdb,data.imdbUrl],['TMDB',data.tmdb,data.tmdbUrl]]) {
++                    if(!id || !url) continue;
++                    const link=document.createElement('a'); link.textContent=`${label}: ${id}`; link.href=url; link.target='_blank'; link.rel='noopener noreferrer';
++                    const copy=action(`Copy ${label} ID`,async()=> {try {await navigator.clipboard.writeText(id); copy.textContent='Copied';} catch {onError(`Copy this ID: ${id}`);}});
++                    identifiers.append(link,copy);
++                }
++                if(!data.imdb) {const note=document.createElement('small'); note.textContent='No IMDb ID supplied by the catalogue.'; identifiers.append(note);}
++            } catch(error) {button.disabled=false; onError(error.message);}
++        }); identifiers.append(button); card.append(identifiers);
++    }
 +    for (const request of compact ? item.requests.slice(0,3) : item.requests) {
 +        const row=document.createElement('div'); row.className='requestBoardPerson';
 +        const name=document.createElement('span'); name.textContent=request.displayName;
 +        const status=document.createElement('span'); status.className=`requestBoardStatus ${request.status}`; status.textContent=REQUEST_STATUS[request.status] || 'Requested';
 +        row.append(name,status);
++        if(request.removeAfter) {const cleanup=document.createElement('small'); cleanup.className='requestCleanupDate'; cleanup.textContent=`Leaves board ${new Date(request.removeAfter).toLocaleString()} if still available`; row.append(cleanup);}
 +        if (request.seasons.length) {const seasons=document.createElement('small'); seasons.textContent=`Seasons ${request.seasons.join(', ')}`; row.append(seasons);}
 +        if (!compact) {
 +            const time=document.createElement('time'); time.dateTime=new Date(request.createdAt).toISOString(); time.textContent=new Date(request.createdAt).toLocaleDateString(); row.append(time);
@@ -7097,10 +7114,10 @@ index 0000000..e112e26
 +}
 diff --git a/src/scripts/community/requestBoard.test.ts b/src/scripts/community/requestBoard.test.ts
 new file mode 100644
-index 0000000..b78e57a
+index 0000000..bad63f3
 --- /dev/null
 +++ b/src/scripts/community/requestBoard.test.ts
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,79 @@
 +/// <reference types="vite/client" />
 +import { afterEach,expect,test,vi } from 'vitest';
 +import template from '../../apps/legacy/controllers/requestmedia.html?raw';
@@ -7171,6 +7188,14 @@ index 0000000..b78e57a
 +    vi.mocked(communityFetch).mockRejectedValue(new Error('Not permitted'));
 +    await preview.refresh();
 +    expect(host.querySelector('.requestBoardPreviewCards')!.textContent).toBe('');preview.destroy();
++});
++
++test('identifier controls are admin-only and available entries show their cleanup date',async()=>{
++ const item={mediaId:1,title:'Movie',mediaType:'movie',year:2000,requests:[{id:'request',authorId:'self',displayName:'Self',seasons:[],status:'available',createdAt:1,canRemove:true,removeAfter:1700000000000}]};
++ const ordinary=requestCard(item,{id:'self',isAdmin:false},vi.fn(),vi.fn());expect(ordinary.textContent).not.toContain('Title IDs');expect(ordinary.textContent).toContain('Leaves board');
++ vi.mocked(communityFetch).mockResolvedValue({imdb:'tt0117951',imdbUrl:'https://www.imdb.com/title/tt0117951/',tmdb:'1',tmdbUrl:'https://www.themoviedb.org/movie/1'});
++ const admin=requestCard(item,{id:'self',isAdmin:true},vi.fn(),vi.fn());admin.querySelector<HTMLButtonElement>('.requestIdentifiers button')!.click();await vi.waitFor(()=>expect(admin.textContent).toContain('IMDb: tt0117951'));
++ expect(admin.querySelector('.requestIdentifiers a')?.getAttribute('href')).toBe('https://www.imdb.com/title/tt0117951/');
 +});
 diff --git a/src/scripts/community/socialWidgets.js b/src/scripts/community/socialWidgets.js
 new file mode 100644
@@ -7371,6 +7396,106 @@ index 7b818d4..c899fd5 100644
      currentUser = {};
      updateUserInHeader();
  });
--- 
-2.43.0
-
+diff --git a/src/scripts/community/playbackPosition.js b/src/scripts/community/playbackPosition.js
+new file mode 100644
+index 0000000..bfb8482
+--- /dev/null
++++ b/src/scripts/community/playbackPosition.js
+@@ -0,0 +1,35 @@
++import { playbackManager } from 'components/playback/playbackmanager';
++import Events from 'utils/events';
++import { EventType } from 'constants/eventType';
++
++// Keep Messages above the bottom controls and subtitle region during local video.
++export class PlaybackChatPosition {
++    /** @param {HTMLElement} root @param {{isPlayingVideo: Function, getCurrentPlayer?: Function}} manager */
++    constructor(root,manager=playbackManager) {
++        this.root=root; this.manager=manager; this.home=root.parentElement; this.controlsVisible=true;
++        this.osd=(_event,visible)=> {this.controlsVisible=visible; this.update();};
++        Events.on(document,EventType.SHOW_VIDEO_OSD,this.osd);
++        this.start=(_event,player)=> {this.playing=!!player?.isLocalPlayer && !player?.isExternalPlayer && manager.isPlayingVideo(player); this.update();};
++        this.stop=()=> {this.playing=false; this.update();};
++        this.fullscreen=()=>this.update();
++        Events.on(manager,'playbackstart',this.start); Events.on(manager,'playbackstop',this.stop);
++        document.addEventListener('fullscreenchange',this.fullscreen); document.addEventListener('webkitfullscreenchange',this.fullscreen);
++        const player=manager.getCurrentPlayer?.();
++        this.playing=!!player?.isLocalPlayer && !player?.isExternalPlayer && manager.isPlayingVideo(player); this.update();
++    }
++    update() {
++        this.root.classList.toggle('communityChatPlayback',this.playing);
++        this.root.classList.toggle('communityChatControlsHidden',this.playing && !this.controlsVisible);
++        const fullscreen=document.fullscreenElement || document.webkitFullscreenElement;
++        // Native video fullscreen cannot contain web overlays. Do not reparent into a video element.
++        const target=this.playing && fullscreen instanceof HTMLElement && !['VIDEO','IFRAME'].includes(fullscreen.tagName) ? fullscreen : this.home;
++        if(target && target!==this.root && this.root.parentElement!==target) target.append(this.root);
++    }
++    destroy() {
++        Events.off(document,EventType.SHOW_VIDEO_OSD,this.osd);
++        Events.off(this.manager,'playbackstart',this.start); Events.off(this.manager,'playbackstop',this.stop);
++        document.removeEventListener('fullscreenchange',this.fullscreen); document.removeEventListener('webkitfullscreenchange',this.fullscreen);
++        this.root.classList.remove('communityChatPlayback','communityChatControlsHidden');
++        if(this.home && this.root.parentElement!==this.home) this.home.append(this.root);
++    }
++}
+diff --git a/src/scripts/community/playbackPosition.test.ts b/src/scripts/community/playbackPosition.test.ts
+new file mode 100644
+index 0000000..3e086b0
+--- /dev/null
++++ b/src/scripts/community/playbackPosition.test.ts
+@@ -0,0 +1,31 @@
++import { afterEach,expect,test,vi } from 'vitest';
++vi.mock('components/playback/playbackmanager',()=>({playbackManager:{}}));
++import Events from 'utils/events';
++import { EventType } from 'constants/eventType';
++import { PlaybackChatPosition } from './playbackPosition';
++let position:PlaybackChatPosition;
++afterEach(()=>{position?.destroy();document.body.replaceChildren();vi.restoreAllMocks();Reflect.deleteProperty(document,'fullscreenElement');});
++test('local video positions Messages above controls and restores on stop; audio and remote playback do not',()=>{
++ const root=document.createElement('section');document.body.append(root);const manager={isPlayingVideo:(p:{video:boolean})=>p.video};position=new PlaybackChatPosition(root,manager);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true,video:true}]);expect(root.classList.contains('communityChatPlayback')).toBe(true);
++ Events.trigger(manager,'playbackstop');expect(root.classList.contains('communityChatPlayback')).toBe(false);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:false,video:true}]);expect(root.classList.contains('communityChatPlayback')).toBe(false);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true,video:false}]);expect(root.classList.contains('communityChatPlayback')).toBe(false);
++});
++test('chat enters fullscreen containers and returns afterwards without moving into native video elements',()=>{
++ const root=document.createElement('section'),fullscreen=document.createElement('div');document.body.append(root,fullscreen);let current:Element|null=fullscreen;Object.defineProperty(document,'fullscreenElement',{configurable:true,get:()=>current});
++ const manager={isPlayingVideo:()=>true};position=new PlaybackChatPosition(root,manager);Events.trigger(manager,'playbackstart',[{isLocalPlayer:true}]);expect(root.parentElement).toBe(fullscreen);
++ current=null;document.dispatchEvent(new Event('fullscreenchange'));expect(root.parentElement).toBe(document.body);
++ const video=document.createElement('video');document.body.append(video);current=video;document.dispatchEvent(new Event('fullscreenchange'));expect(root.parentElement).toBe(document.body);
++});
++
++
++test('Messages follows the player controls inactivity state and stays visible outside video playback',()=>{
++ const root=document.createElement('section');document.body.append(root);const manager={isPlayingVideo:()=>true};position=new PlaybackChatPosition(root,manager);
++ Events.trigger(manager,'playbackstart',[{isLocalPlayer:true}]);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);expect(root.classList.contains('communityChatControlsHidden')).toBe(true);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[true]);expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);Events.trigger(manager,'playbackstop');expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
++ Events.trigger(document,EventType.SHOW_VIDEO_OSD,[false]);expect(root.classList.contains('communityChatControlsHidden')).toBe(false);
++ position.destroy();Events.trigger(document,EventType.SHOW_VIDEO_OSD,[true]);expect(root.className).toBe('');
++});
+diff --git a/src/scripts/community/preview.test.ts b/src/scripts/community/preview.test.ts
+new file mode 100644
+index 0000000..37b54ed
+--- /dev/null
++++ b/src/scripts/community/preview.test.ts
+@@ -0,0 +1,19 @@
++import { afterEach,expect,test,vi } from 'vitest';
++vi.mock('./api',()=>({communityFetch:vi.fn(),messageAvatar:()=>document.createElement('span')}));
++vi.mock('./online',()=>({OnlinePanel:class {resume() {} pause() {}}}));
++import { communityFetch } from './api';
++import { CommunityPreview } from './preview';
++let preview:CommunityPreview;
++afterEach(()=>{preview?.destroy();vi.restoreAllMocks();document.body.replaceChildren();});
++test('homepage reaction controls sit outside links and update while browsing older messages',async()=>{
++ vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');let reactions=[{emoji:'😀',count:1,mine:false,people:[{name:'Peer'}]}];
++ const message={id:'first',authorId:'peer',displayName:'Peer',body:'Hello',createdAt:1700000000000,reactions};
++ vi.mocked(communityFetch).mockImplementation(async path=>{
++  if(path==='/messages')return {items:[message],nextCursor:null};if(path==='/messages/snapshot')return {items:[{...message,reactions}]};
++  if(path==='/reactions/board/first')return {reactions:[{...reactions[0],count:2,mine:true}]};throw new Error('Unexpected endpoint');
++ });
++ const container=document.createElement('div');document.body.append(container);preview=new CommunityPreview(container);preview.active=true;await preview.refresh();
++ const card=container.querySelector('.communityPreviewCard')!;expect(card.tagName).toBe('ARTICLE');expect(card.querySelector('a button')).toBeNull();expect(card.querySelector('.communityReactionCount')?.textContent,card.outerHTML).toBe('1');
++ card.querySelector<HTMLButtonElement>('.communityReaction')!.click();await vi.waitFor(()=>expect(card.querySelector('[aria-pressed="true"]')).not.toBeNull());
++ preview.browsing=true;reactions=[{emoji:'😎',count:3,mine:false,people:[{name:'Other'}]}];await preview.refreshReactions();expect(card.querySelector('.communityReactionCount')?.textContent).toBe('3');
++});

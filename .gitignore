@@ -12,3 +12,6 @@ backups/
 seerr-data/
 community-data/
 **/catalog-credentials.json*
+
+# Private unattended library-check credential
+**/library-credentials.json*

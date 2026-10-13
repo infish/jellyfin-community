@@ -9,3 +9,6 @@ release
 **/*.sqlite*
 **/*.log
 **/catalog-credentials.json*
+
+# Private unattended library-check credential
+**/library-credentials.json*

@@ -71,3 +71,13 @@ the next account's access check fails. Old asynchronous responses cannot restore
 those cards after a view session changes, and the home preview clears cards on
 access errors. Both cases have regression tests. The connected token remains
 private and is not included in Git or source archives. Publication uses matching source archives and pinned web/backend images.
+
+## Next upgrade (local, not committed or deployed)
+
+Administrators can open Title IDs on request cards to copy IMDb/TMDB identifiers or follow their catalogue links. The identifier endpoint independently checks the administrator role.
+
+The board checks the current requester's entries at most once per minute when that person opens or refreshes it. To check while everyone is offline, an administrator must connect a Jellyfin API key in Requests → Automatic library checks, or privately supply `JELLYFIN_LIBRARY_API_KEY`. This is server-wide API access: create a dedicated key and revoke it if this service is retired. Never use a browser session token. The key is validated, saved separately at `/data/library-credentials.json` with mode 0600, and never returned through the API or included in source/images. Preserve it in private backups.
+
+Connected background checks run every five minutes, including after startup. They reload each requester's current Jellyfin policy and query with that requester's UserId. Disabled, deleted, or discovery-restricted accounts are skipped. Without a configured key, the UI explicitly describes the authenticated-on-open fallback.
+
+Confirmed movies become Available. Shows become In progress when some requested episodes exist, and Available only when all requested seasons are complete. Unrequested missing seasons do not block completion. Declined requests remain untouched. Confirmed availability begins a persisted 72-hour countdown; removal is a soft deletion after a successful final library check. A successful check showing disappearance cancels the countdown, while errors defer changes and deletion. Manually marking Available does not start cleanup until library confirmation. No media or download-manager data is deleted.
