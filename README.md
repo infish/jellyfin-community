@@ -77,6 +77,6 @@ To refresh upstream, check out an explicit tag, verify its commit, apply `patche
 
 ## Scope and licensing
 
-The supported UI includes the classic and modern browser routes in this build. Native apps, detailed automation telemetry, 4K controls, DMs, reactions, notifications, and restricted-account external discovery remain outside this release.
+The supported UI includes the classic and modern browser routes in this build. Private chat, replies, reactions, and the manual request board are included. Native client UI changes, detailed automation telemetry, 4K controls, push notifications, and restricted-account external discovery remain outside this release.
 
 The modified Jellyfin Web tree retains GPL-2.0-or-later and its upstream notices. This repository's original code is also GPL-2.0-or-later; see [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md). Version-tagged release builds publish matching complete source archives before publishing images. Seerr is pulled from its official registry and remains unmodified. This project is unofficial and does not imply Jellyfin endorsement.

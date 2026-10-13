@@ -4,7 +4,7 @@
 name: jellyfin-community
 services:
   gateway:
-    image: ghcr.io/infish/jellyfin-community-web:v0.1.0@sha256:REPLACE_WEB_DIGEST
+    image: ghcr.io/infish/jellyfin-community-web:v0.1.0-alpha.3@sha256:REPLACE_WEB_DIGEST
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -12,7 +12,7 @@ services:
       JELLYFIN_UPSTREAM: http://REPLACE_JELLYFIN_HOST:8096
     # Deliberately independent of community health/startup.
   community:
-    image: ghcr.io/infish/jellyfin-community-backend:v0.1.0@sha256:REPLACE_BACKEND_DIGEST
+    image: ghcr.io/infish/jellyfin-community-backend:v0.1.0-alpha.3@sha256:REPLACE_BACKEND_DIGEST
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -20,7 +20,8 @@ services:
       JELLYFIN_URL: http://REPLACE_JELLYFIN_HOST:8096
       PRESENCE_ENABLED: "true"
       BOARD_ENABLED: "true"
-      REQUESTS_ENABLED: "false"
+      REQUESTS_ENABLED: "false" # Seerr automation stays disabled.
+      REQUEST_BOARD_ENABLED: "true"
       LIVE_COMPAT_VERIFIED: "false"
       MOCK_UPSTREAMS: "false"
     volumes:

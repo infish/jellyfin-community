@@ -8,7 +8,9 @@ Native clients or clients with their own web bundle retain their existing UI.
 
 Use an explicitly tested release with published images and matching source
 archives. This repository's preparation does not establish NAS playback or
-Seerr compatibility. Requests remain disabled in the initial NAS template.
+Seerr compatibility. Seerr automation remains disabled. The manual request board
+is enabled; configure its TMDB token through the administrator form and preserve
+`/data/catalog-credentials.json` with the database backups.
 
 Create a dedicated dataset, for example `/mnt/POOL/apps/jellyfin-community`.
 Grant container UID/GID 1000 write access to this dataset only; do not recursively
