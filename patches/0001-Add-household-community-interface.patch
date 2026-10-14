@@ -1,4 +1,4 @@
-From 14391675361edfec52d5deb6e574606797a7f42d Mon Sep 17 00:00:00 2001
+From f2d42c29a638f8b687b1a5555f9f08ac30ef586e Mon Sep 17 00:00:00 2001
 From: Jellyfin Household Maintainer <maintainer@localhost>
 Date: Mon, 14 Sep 2026 16:12:25 +0200
 Subject: [PATCH] Add household community interface
@@ -9,8 +9,11 @@ Subject: [PATCH] Add household community interface
  src/apps/legacy/controllers/community.html    |   19 +
  src/apps/legacy/controllers/community.js      |  131 +
  src/apps/legacy/controllers/hometab.js        |   19 +
+ .../controllers/playback/video/index.js       |   20 +-
  src/apps/legacy/controllers/requestmedia.html |   14 +
  src/apps/legacy/controllers/requestmedia.js   |  154 +
+ .../playback/utils/volumeWheel.test.ts        |   37 +
+ .../features/playback/utils/volumeWheel.ts    |   16 +
  src/apps/legacy/routes/legacyRoutes/user.ts   |   12 +
  .../components/drawers/MainDrawerContent.tsx  |   18 +
  src/apps/modern/routes/legacyRoutes/user.ts   |   12 +
@@ -38,11 +41,13 @@ Subject: [PATCH] Add household community interface
  src/scripts/community/socialWidgets.js        |  104 +
  src/scripts/community/socialWidgets.test.ts   |    9 +
  src/scripts/libraryMenu.js                    |   12 +
- 34 files changed, 3863 insertions(+), 1184 deletions(-)
+ 37 files changed, 3925 insertions(+), 1195 deletions(-)
  create mode 100644 src/apps/legacy/controllers/community.html
  create mode 100644 src/apps/legacy/controllers/community.js
  create mode 100644 src/apps/legacy/controllers/requestmedia.html
  create mode 100644 src/apps/legacy/controllers/requestmedia.js
+ create mode 100644 src/apps/legacy/features/playback/utils/volumeWheel.test.ts
+ create mode 100644 src/apps/legacy/features/playback/utils/volumeWheel.ts
  create mode 100644 src/assets/img/tmdb-logo.svg
  create mode 100644 src/scripts/community/api.js
  create mode 100644 src/scripts/community/chat.js
@@ -5341,6 +5346,57 @@ index 4f73a82..3a59a51 100644
          this.sectionsContainer = null;
      }
      destroyHomeSections() {
+diff --git a/src/apps/legacy/controllers/playback/video/index.js b/src/apps/legacy/controllers/playback/video/index.js
+index add9be8..3dfe6f1 100644
+--- a/src/apps/legacy/controllers/playback/video/index.js
++++ b/src/apps/legacy/controllers/playback/video/index.js
+@@ -1,5 +1,6 @@
+ import escapeHtml from 'escape-html';
+ 
++import { bindVolumeWheel } from 'apps/legacy/features/playback/utils/volumeWheel';
+ import { PlayerEvent } from 'apps/legacy/features/playback/constants/playerEvent';
+ import { AppFeature } from 'constants/appFeature';
+ import { PluginType } from 'constants/pluginType';
+@@ -1426,15 +1427,7 @@ export default function (view) {
+         resetIdle();
+     }
+ 
+-    function onWheel(e) {
+-        if (getOpenedDialog()) return;
+-        if (e.deltaY < 0) {
+-            playbackManager.volumeUp(currentPlayer);
+-        }
+-        if (e.deltaY > 0) {
+-            playbackManager.volumeDown(currentPlayer);
+-        }
+-    }
++    let unbindVolumeWheel;
+ 
+     function onWindowMouseDown(e) {
+         clickedElement = e.target;
+@@ -1680,7 +1673,11 @@ export default function (view) {
+                 capture: true,
+                 passive: true
+             });
+-            document.addEventListener('wheel', onWheel);
++            unbindVolumeWheel?.();
++            unbindVolumeWheel=bindVolumeWheel(view.querySelector('.volumeButtons'),direction=> {
++                if (direction==='up') playbackManager.volumeUp(currentPlayer);
++                else playbackManager.volumeDown(currentPlayer);
++            },()=>!!getOpenedDialog());
+             /* eslint-disable-next-line compat/compat */
+             dom.addEventListener(window, window.PointerEvent ? 'pointerdown' : 'mousedown', onWindowMouseDown, {
+                 capture: true,
+@@ -1723,7 +1720,8 @@ export default function (view) {
+             capture: true,
+             passive: true
+         });
+-        document.removeEventListener('wheel', onWheel);
++        unbindVolumeWheel?.();
++        unbindVolumeWheel=null;
+         /* eslint-disable-next-line compat/compat */
+         dom.removeEventListener(window, window.PointerEvent ? 'pointerdown' : 'mousedown', onWindowMouseDown, {
+             capture: true,
 diff --git a/src/apps/legacy/controllers/requestmedia.html b/src/apps/legacy/controllers/requestmedia.html
 new file mode 100644
 index 0000000..9993251
@@ -5520,6 +5576,71 @@ index 0000000..58d74fc
 +        this.view.querySelector('.requestBoardEmpty').textContent=items.length ? '' : 'No requests here yet.';
 +    }
 +    destroy() {this.hide(); this.view.removeEventListener('viewshow',this.show); this.view.removeEventListener('viewhide',this.hide); this.view.querySelector('.requestSearchBar').removeEventListener('submit',this.submitSearch); this.view.querySelector('#requestQuery').removeEventListener('input',this.typedSearch); this.view=null;}
++}
+diff --git a/src/apps/legacy/features/playback/utils/volumeWheel.test.ts b/src/apps/legacy/features/playback/utils/volumeWheel.test.ts
+new file mode 100644
+index 0000000..de58142
+--- /dev/null
++++ b/src/apps/legacy/features/playback/utils/volumeWheel.test.ts
+@@ -0,0 +1,37 @@
++import { afterEach,expect,test,vi } from 'vitest';
++import { bindVolumeWheel } from './volumeWheel';
++afterEach(()=>document.body.replaceChildren());
++function setup() {
++    document.body.innerHTML='<div class="volumeButtons"><input type="range"><button>Mute</button></div><section class="chat"><textarea></textarea><div class="messages"></div></section>';
++    const controls=document.querySelector<HTMLElement>('.volumeButtons')!,adjust=vi.fn();
++    const unbind=bindVolumeWheel(controls,adjust,()=>false);
++    return {controls,adjust,unbind};
++}
++test('touchpad-sized and mouse-wheel scrolling outside volume controls never adjusts volume or cancels scrolling',()=> {
++    const {adjust,unbind}=setup();
++    for(const target of [document.body,document.querySelector('textarea')!,document.querySelector('.messages')!]) {
++        for(const [deltaY,deltaMode] of [[1.25,0],[120,0],[3,1]]) {
++            const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY,deltaMode});target.dispatchEvent(event);
++            expect(event.defaultPrevented).toBe(false);
++        }
++    }
++    expect(adjust).not.toHaveBeenCalled();unbind();
++});
++test('vertical wheel over volume controls adjusts volume once and prevents simultaneous page scrolling; teardown stops it',()=> {
++    const {controls,adjust,unbind}=setup();
++    const up=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-1.25});controls.querySelector('input')!.dispatchEvent(up);
++    expect(adjust).toHaveBeenLastCalledWith('up');expect(up.defaultPrevented).toBe(true);
++    const down=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:120});controls.querySelector('button')!.dispatchEvent(down);
++    expect(adjust).toHaveBeenLastCalledWith('down');expect(adjust).toHaveBeenCalledTimes(2);
++    unbind();const after=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:120});controls.dispatchEvent(after);
++    expect(adjust).toHaveBeenCalledTimes(2);expect(after.defaultPrevented).toBe(false);
++});
++test('horizontal gestures, pinch zoom, canceled events and dialogs are preserved',()=> {
++    const {controls,adjust,unbind}=setup();
++    for(const options of [{deltaY:0,deltaX:100},{deltaY:1,deltaX:100},{deltaY:1,ctrlKey:true},{deltaY:1,metaKey:true}]) {
++        const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,...options});controls.dispatchEvent(event);expect(event.defaultPrevented).toBe(false);
++    }
++    const canceled=new WheelEvent('wheel',{cancelable:true,deltaY:1});canceled.preventDefault();controls.dispatchEvent(canceled);expect(adjust).not.toHaveBeenCalled();unbind();
++    const blocked=bindVolumeWheel(controls,adjust,()=>true),event=new WheelEvent('wheel',{cancelable:true,deltaY:1});controls.dispatchEvent(event);
++    expect(adjust).not.toHaveBeenCalled();expect(event.defaultPrevented).toBe(false);blocked();
++});
+diff --git a/src/apps/legacy/features/playback/utils/volumeWheel.ts b/src/apps/legacy/features/playback/utils/volumeWheel.ts
+new file mode 100644
+index 0000000..667c796
+--- /dev/null
++++ b/src/apps/legacy/features/playback/utils/volumeWheel.ts
+@@ -0,0 +1,16 @@
++/** Wheel shortcuts belong only to the volume controls, never the player/page. */
++export function bindVolumeWheel(
++    controls: HTMLElement,
++    adjust: (direction: 'up' | 'down') => void,
++    blocked: () => boolean
++) {
++    const onWheel = (event: WheelEvent) => {
++        if (blocked() || event.defaultPrevented || event.ctrlKey || event.metaKey
++            || !Number.isFinite(event.deltaY) || !event.deltaY
++            || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
++        event.preventDefault();
++        adjust(event.deltaY < 0 ? 'up' : 'down');
++    };
++    controls.addEventListener('wheel', onWheel, { passive: false });
++    return () => controls.removeEventListener('wheel', onWheel);
 +}
 diff --git a/src/apps/legacy/routes/legacyRoutes/user.ts b/src/apps/legacy/routes/legacyRoutes/user.ts
 index 612572a..d2e6c82 100644
