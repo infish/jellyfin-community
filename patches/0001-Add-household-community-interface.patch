@@ -1,4 +1,4 @@
-From f2d42c29a638f8b687b1a5555f9f08ac30ef586e Mon Sep 17 00:00:00 2001
+From cacdfd1e412ccbbfcf65ddb20d2f7128ce2d236a Mon Sep 17 00:00:00 2001
 From: Jellyfin Household Maintainer <maintainer@localhost>
 Date: Mon, 14 Sep 2026 16:12:25 +0200
 Subject: [PATCH] Add household community interface
@@ -12,8 +12,8 @@ Subject: [PATCH] Add household community interface
  .../controllers/playback/video/index.js       |   20 +-
  src/apps/legacy/controllers/requestmedia.html |   14 +
  src/apps/legacy/controllers/requestmedia.js   |  154 +
- .../playback/utils/volumeWheel.test.ts        |   37 +
- .../features/playback/utils/volumeWheel.ts    |   16 +
+ .../playback/utils/volumeWheel.test.ts        |   61 +
+ .../features/playback/utils/volumeWheel.ts    |   26 +
  src/apps/legacy/routes/legacyRoutes/user.ts   |   12 +
  .../components/drawers/MainDrawerContent.tsx  |   18 +
  src/apps/modern/routes/legacyRoutes/user.ts   |   12 +
@@ -41,7 +41,7 @@ Subject: [PATCH] Add household community interface
  src/scripts/community/socialWidgets.js        |  104 +
  src/scripts/community/socialWidgets.test.ts   |    9 +
  src/scripts/libraryMenu.js                    |   12 +
- 37 files changed, 3925 insertions(+), 1195 deletions(-)
+ 37 files changed, 3959 insertions(+), 1195 deletions(-)
  create mode 100644 src/apps/legacy/controllers/community.html
  create mode 100644 src/apps/legacy/controllers/community.js
  create mode 100644 src/apps/legacy/controllers/requestmedia.html
@@ -5347,7 +5347,7 @@ index 4f73a82..3a59a51 100644
      }
      destroyHomeSections() {
 diff --git a/src/apps/legacy/controllers/playback/video/index.js b/src/apps/legacy/controllers/playback/video/index.js
-index add9be8..3dfe6f1 100644
+index add9be8..f01c6bf 100644
 --- a/src/apps/legacy/controllers/playback/video/index.js
 +++ b/src/apps/legacy/controllers/playback/video/index.js
 @@ -1,5 +1,6 @@
@@ -5383,7 +5383,7 @@ index add9be8..3dfe6f1 100644
 +            unbindVolumeWheel=bindVolumeWheel(view.querySelector('.volumeButtons'),direction=> {
 +                if (direction==='up') playbackManager.volumeUp(currentPlayer);
 +                else playbackManager.volumeDown(currentPlayer);
-+            },()=>!!getOpenedDialog());
++            },()=>!!getOpenedDialog(),view);
              /* eslint-disable-next-line compat/compat */
              dom.addEventListener(window, window.PointerEvent ? 'pointerdown' : 'mousedown', onWindowMouseDown, {
                  capture: true,
@@ -5579,10 +5579,10 @@ index 0000000..58d74fc
 +}
 diff --git a/src/apps/legacy/features/playback/utils/volumeWheel.test.ts b/src/apps/legacy/features/playback/utils/volumeWheel.test.ts
 new file mode 100644
-index 0000000..de58142
+index 0000000..69ed837
 --- /dev/null
 +++ b/src/apps/legacy/features/playback/utils/volumeWheel.test.ts
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,61 @@
 +import { afterEach,expect,test,vi } from 'vitest';
 +import { bindVolumeWheel } from './volumeWheel';
 +afterEach(()=>document.body.replaceChildren());
@@ -5620,27 +5620,61 @@ index 0000000..de58142
 +    const blocked=bindVolumeWheel(controls,adjust,()=>true),event=new WheelEvent('wheel',{cancelable:true,deltaY:1});controls.dispatchEvent(event);
 +    expect(adjust).not.toHaveBeenCalled();expect(event.defaultPrevented).toBe(false);blocked();
 +});
++
++test('bare web and native video surfaces adjust volume, but chat and other player controls still scroll normally',()=> {
++    const {controls,adjust,unbind}=setup();unbind();
++    const page=document.createElement('div');page.id='videoOsdPage';
++    page.append(document.querySelector('.chat')!);
++    const position=document.createElement('input');position.type='range';page.append(position);
++    document.body.append(page);
++    const container=document.createElement('div');container.className='videoPlayerContainer';
++    const video=document.createElement('video');video.className='htmlvideoplayer';container.append(video);document.body.append(container);
++    const cleanup=bindVolumeWheel(controls,adjust,()=>false,page);
++    for (const target of [page,container,video,controls.querySelector('input')!]) {
++        const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-120});target.dispatchEvent(event);
++        expect(event.defaultPrevented).toBe(true);
++    }
++    expect(adjust).toHaveBeenCalledTimes(4);
++    for (const target of [document.body,page.querySelector('textarea')!,page.querySelector('.messages')!,position]) {
++        for (const deltaY of [1.25,120]) {
++            const event=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY});target.dispatchEvent(event);
++            expect(event.defaultPrevented).toBe(false);
++        }
++    }
++    expect(adjust).toHaveBeenCalledTimes(4);
++    cleanup();page.dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-120}));expect(adjust).toHaveBeenCalledTimes(4);
++});
 diff --git a/src/apps/legacy/features/playback/utils/volumeWheel.ts b/src/apps/legacy/features/playback/utils/volumeWheel.ts
 new file mode 100644
-index 0000000..667c796
+index 0000000..31de6d7
 --- /dev/null
 +++ b/src/apps/legacy/features/playback/utils/volumeWheel.ts
-@@ -0,0 +1,16 @@
-+/** Wheel shortcuts belong only to the volume controls, never the player/page. */
+@@ -0,0 +1,26 @@
++/** Wheel volume shortcuts belong to volume controls or the bare video surface. */
 +export function bindVolumeWheel(
 +    controls: HTMLElement,
 +    adjust: (direction: 'up' | 'down') => void,
-+    blocked: () => boolean
++    blocked: () => boolean,
++    videoPage?: HTMLElement
 +) {
-+    const onWheel = (event: WheelEvent) => {
++    const target = videoPage ? controls.ownerDocument : controls;
++    const onWheel = (rawEvent: Event) => {
++        if (!(rawEvent instanceof WheelEvent)) return;
++        const event = rawEvent;
++        const element = event.target;
++        if (!(element instanceof Element)) return;
++        const overVolume = controls.contains(element);
++        const overVideo = !!videoPage && (element === videoPage
++            || element.matches('.videoPlayerContainer, video.htmlvideoplayer'));
++        if (!overVolume && !overVideo) return;
 +        if (blocked() || event.defaultPrevented || event.ctrlKey || event.metaKey
 +            || !Number.isFinite(event.deltaY) || !event.deltaY
 +            || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
 +        event.preventDefault();
 +        adjust(event.deltaY < 0 ? 'up' : 'down');
 +    };
-+    controls.addEventListener('wheel', onWheel, { passive: false });
-+    return () => controls.removeEventListener('wheel', onWheel);
++    target.addEventListener('wheel', onWheel, { passive: false });
++    return () => target.removeEventListener('wheel', onWheel);
 +}
 diff --git a/src/apps/legacy/routes/legacyRoutes/user.ts b/src/apps/legacy/routes/legacyRoutes/user.ts
 index 612572a..d2e6c82 100644
