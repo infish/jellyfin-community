@@ -1,6 +1,6 @@
 # Scoped LG webOS fallback
 
-Implemented and approved for publication and TrueNAS deployment as v0.1.0-alpha.8 on 2026-11-08.
+Implemented and approved for publication and TrueNAS deployment as v0.1.0-alpha.9 on 2026-11-08.
 
 ## Scope
 
@@ -19,3 +19,7 @@ Do not change authentication, library access, media, database records, playback 
 Two orchestration tests first failed against the previous code because the old LG client still constructed homepage previews and initialized chat. After gating, they pass and confirm standard library sections still load/resume. Additional tests cover LG spelling variants, supported LG clients, desktop/mobile/Tizen controls, and exclusion/preservation of custom routes in both interfaces. All 201 web tests and the TypeScript check pass. The production build passes with the two existing bundle-size warnings. The aggregate distribution patch was applied using git am in a disposable checkout and reproduced every changed file.
 
 Actual TV startup, remote navigation and playback still require acceptance testing on the affected television. A simulated older DOM is not a physical webOS test.
+
+## Release prerequisite
+
+Alpha.8 was stopped by the backend dependency audit before image publication. The follow-up release updates Fastify 5.12.5 to 5.12.6 and compatible fast-uri dependencies to patched versions. All 23 backend tests pass and the production audit reports zero vulnerabilities. No backend product behavior or schema changes were added.
