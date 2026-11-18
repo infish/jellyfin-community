@@ -1,85 +1,10 @@
-From 47c5e144ccab55ad6eed3b5829647227b97c361e Mon Sep 17 00:00:00 2001
 From: Jellyfin Household Maintainer <maintainer@localhost>
-Date: Mon, 14 Sep 2026 16:12:25 +0200
 Subject: [PATCH] Add household community interface
 
----
- package-lock.json                             | 2912 ++++++++++-------
- package.json                                  |   13 +-
- src/apps/legacy/controllers/community.html    |   19 +
- src/apps/legacy/controllers/community.js      |  131 +
- src/apps/legacy/controllers/hometab.js        |   22 +
- .../controllers/playback/video/index.js       |   20 +-
- src/apps/legacy/controllers/requestmedia.html |   14 +
- src/apps/legacy/controllers/requestmedia.js   |  154 +
- .../playback/utils/volumeWheel.test.ts        |   61 +
- .../features/playback/utils/volumeWheel.ts    |   26 +
- src/apps/legacy/routes/legacyRoutes/user.ts   |   19 +-
- .../components/drawers/MainDrawerContent.tsx  |   21 +
- src/apps/modern/routes/legacyRoutes/user.ts   |   19 +-
- src/assets/img/tmdb-logo.svg                  |  Bin 0 -> 2065 bytes
- src/scripts/community/api.js                  |   67 +
- src/scripts/community/chat.js                 |  266 ++
- src/scripts/community/chat.test.ts            |   70 +
- src/scripts/community/clientCompatibility.js  |    5 +
- .../community/clientCompatibility.test.ts     |   37 +
- src/scripts/community/community.scss          |  206 ++
- src/scripts/community/emojiDisplay.js         |   30 +
- src/scripts/community/emojiDisplay.test.ts    |   13 +
- src/scripts/community/emojiPicker.js          |   83 +
- src/scripts/community/emojiPicker.test.ts     |   29 +
- src/scripts/community/holdAdvance.js          |   28 +
- src/scripts/community/holdAdvance.test.ts     |   29 +
- src/scripts/community/legacyWebos.test.ts     |   35 +
- src/scripts/community/online.js               |  142 +
- src/scripts/community/online.test.ts          |   72 +
- src/scripts/community/playbackPosition.js     |   35 +
- .../community/playbackPosition.test.ts        |   31 +
- src/scripts/community/presence.js             |  115 +
- src/scripts/community/presence.test.ts        |   25 +
- src/scripts/community/preview.js              |  196 ++
- src/scripts/community/preview.test.ts         |   19 +
- src/scripts/community/requestBoard.js         |   87 +
- src/scripts/community/requestBoard.test.ts    |   79 +
- src/scripts/community/socialWidgets.js        |  104 +
- src/scripts/community/socialWidgets.test.ts   |    9 +
- src/scripts/libraryMenu.js                    |   15 +
- 40 files changed, 4061 insertions(+), 1197 deletions(-)
- create mode 100644 src/apps/legacy/controllers/community.html
- create mode 100644 src/apps/legacy/controllers/community.js
- create mode 100644 src/apps/legacy/controllers/requestmedia.html
- create mode 100644 src/apps/legacy/controllers/requestmedia.js
- create mode 100644 src/apps/legacy/features/playback/utils/volumeWheel.test.ts
- create mode 100644 src/apps/legacy/features/playback/utils/volumeWheel.ts
- create mode 100644 src/assets/img/tmdb-logo.svg
- create mode 100644 src/scripts/community/api.js
- create mode 100644 src/scripts/community/chat.js
- create mode 100644 src/scripts/community/chat.test.ts
- create mode 100644 src/scripts/community/clientCompatibility.js
- create mode 100644 src/scripts/community/clientCompatibility.test.ts
- create mode 100644 src/scripts/community/community.scss
- create mode 100644 src/scripts/community/emojiDisplay.js
- create mode 100644 src/scripts/community/emojiDisplay.test.ts
- create mode 100644 src/scripts/community/emojiPicker.js
- create mode 100644 src/scripts/community/emojiPicker.test.ts
- create mode 100644 src/scripts/community/holdAdvance.js
- create mode 100644 src/scripts/community/holdAdvance.test.ts
- create mode 100644 src/scripts/community/legacyWebos.test.ts
- create mode 100644 src/scripts/community/online.js
- create mode 100644 src/scripts/community/online.test.ts
- create mode 100644 src/scripts/community/playbackPosition.js
- create mode 100644 src/scripts/community/playbackPosition.test.ts
- create mode 100644 src/scripts/community/presence.js
- create mode 100644 src/scripts/community/presence.test.ts
- create mode 100644 src/scripts/community/preview.js
- create mode 100644 src/scripts/community/preview.test.ts
- create mode 100644 src/scripts/community/requestBoard.js
- create mode 100644 src/scripts/community/requestBoard.test.ts
- create mode 100644 src/scripts/community/socialWidgets.js
- create mode 100644 src/scripts/community/socialWidgets.test.ts
+Include shared homepage ordering and per-user resume removal.
 
 diff --git a/package-lock.json b/package-lock.json
-index c8a45f3..1784af4 100644
+index c8a45f35919114afa24cf4e7ebb2aade1b621e49..1784af4e77774c97e7de30777b8b49fa7f43539f 100644
 --- a/package-lock.json
 +++ b/package-lock.json
 @@ -28,13 +28,13 @@
@@ -5077,7 +5002,7 @@ index c8a45f3..1784af4 100644
        "version": "0.1.0",
        "resolved": "https://registry.npmjs.org/yocto-queue/-/yocto-queue-0.1.0.tgz",
 diff --git a/package.json b/package.json
-index b5849f5..2d6239c 100644
+index b5849f5853c19db74d883793b3ba7952183fccd8..2d6239c58d3973237344884ed82753e1de3a393a 100644
 --- a/package.json
 +++ b/package.json
 @@ -96,13 +96,13 @@
@@ -5128,7 +5053,7 @@ index b5849f5..2d6239c 100644
      "npm": ">=11.0.0",
 diff --git a/src/apps/legacy/controllers/community.html b/src/apps/legacy/controllers/community.html
 new file mode 100644
-index 0000000..7a0ea69
+index 0000000000000000000000000000000000000000..7a0ea69e304010b3506176151f9b1f72f473c0be
 --- /dev/null
 +++ b/src/apps/legacy/controllers/community.html
 @@ -0,0 +1,19 @@
@@ -5153,7 +5078,7 @@ index 0000000..7a0ea69
 +</div>
 diff --git a/src/apps/legacy/controllers/community.js b/src/apps/legacy/controllers/community.js
 new file mode 100644
-index 0000000..17757fd
+index 0000000000000000000000000000000000000000..17757fd1a3e9f3003c2415e5fb584e362213a4e5
 --- /dev/null
 +++ b/src/apps/legacy/controllers/community.js
 @@ -0,0 +1,131 @@
@@ -5289,10 +5214,11 @@ index 0000000..17757fd
 +
 +/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/no-nested-template-literals */
 diff --git a/src/apps/legacy/controllers/hometab.js b/src/apps/legacy/controllers/hometab.js
-index 4f73a82..37048fd 100644
+index 4f73a82d299c328ef4170c10c20c2fe939b90419..17f9a455302cc3d2c80c3d98dde44bf7f689f6f7 100644
 --- a/src/apps/legacy/controllers/hometab.js
 +++ b/src/apps/legacy/controllers/hometab.js
-@@ -1,7 +1,10 @@
+@@ -1,7 +1,11 @@
++import { arrangeHomeSections } from 'scripts/community/homeOrder';
 +import { householdFeaturesEnabled } from 'scripts/community/clientCompatibility';
  import * as userSettings from 'scripts/settings/userSettings';
  import focusManager from 'components/focusManager';
@@ -5303,23 +5229,21 @@ index 4f73a82..37048fd 100644
  
  import 'elements/emby-itemscontainer/emby-itemscontainer';
  
-@@ -11,6 +14,15 @@ class HomeTab {
+@@ -11,6 +15,13 @@ class HomeTab {
          this.params = params;
          this.apiClient = ServerConnections.currentApiClient();
          this.sectionsContainer = view.querySelector('.sections');
 +        if (householdFeaturesEnabled()) {
 +            this.communityContainer = document.createElement('section');
 +            this.communityContainer.className = 'verticalSection communityPreview';
-+            this.sectionsContainer.before(this.communityContainer);
 +            this.communityPreview = new CommunityPreview(this.communityContainer);
 +            this.requestContainer=document.createElement('section');
-+            this.communityContainer.after(this.requestContainer);
 +            this.requestPreview=new RequestBoardPreview(this.requestContainer);
 +        }
          view.querySelector('.sections').addEventListener('settingschange', onHomeScreenSettingsChanged.bind(this));
      }
      onResume(options) {
-@@ -18,6 +30,8 @@ class HomeTab {
+@@ -18,6 +29,8 @@ class HomeTab {
              const sectionsContainer = this.sectionsContainer;
  
              if (sectionsContainer) {
@@ -5328,16 +5252,19 @@ index 4f73a82..37048fd 100644
                  return homeSections.resume(sectionsContainer, options);
              }
  
-@@ -31,6 +45,8 @@ class HomeTab {
+@@ -31,6 +44,11 @@ class HomeTab {
          return apiClient.getCurrentUser()
              .then(user => homeSections.loadSections(view.querySelector('.sections'), apiClient, user, userSettings))
              .then(() => {
++                if (this.requestContainer) {
++                    arrangeHomeSections(this.sectionsContainer, this.requestContainer, this.communityContainer);
++                }
 +                this.communityPreview?.resume();
 +                this.requestPreview?.resume();
                  if (options.autoFocus) {
                      focusManager.autoFocus(view);
                  }
-@@ -44,12 +60,18 @@ class HomeTab {
+@@ -44,12 +62,18 @@ class HomeTab {
          if (sectionsContainer) {
              homeSections.pause(sectionsContainer);
          }
@@ -5357,7 +5284,7 @@ index 4f73a82..37048fd 100644
      }
      destroyHomeSections() {
 diff --git a/src/apps/legacy/controllers/playback/video/index.js b/src/apps/legacy/controllers/playback/video/index.js
-index add9be8..f01c6bf 100644
+index add9be8143a54cbafcebd1cf6997a927f213888d..f01c6bfa1bb5daf0c445353c8c59300e7475c424 100644
 --- a/src/apps/legacy/controllers/playback/video/index.js
 +++ b/src/apps/legacy/controllers/playback/video/index.js
 @@ -1,5 +1,6 @@
@@ -5409,7 +5336,7 @@ index add9be8..f01c6bf 100644
              capture: true,
 diff --git a/src/apps/legacy/controllers/requestmedia.html b/src/apps/legacy/controllers/requestmedia.html
 new file mode 100644
-index 0000000..9993251
+index 0000000000000000000000000000000000000000..9993251c7660c30bc232ac1af7f62d87e26ee58c
 --- /dev/null
 +++ b/src/apps/legacy/controllers/requestmedia.html
 @@ -0,0 +1,14 @@
@@ -5429,7 +5356,7 @@ index 0000000..9993251
 +</div>
 diff --git a/src/apps/legacy/controllers/requestmedia.js b/src/apps/legacy/controllers/requestmedia.js
 new file mode 100644
-index 0000000..58d74fc
+index 0000000000000000000000000000000000000000..58d74fcb1dbd3f91405883954a4ea59ce9a2addb
 --- /dev/null
 +++ b/src/apps/legacy/controllers/requestmedia.js
 @@ -0,0 +1,154 @@
@@ -5589,7 +5516,7 @@ index 0000000..58d74fc
 +}
 diff --git a/src/apps/legacy/features/playback/utils/volumeWheel.test.ts b/src/apps/legacy/features/playback/utils/volumeWheel.test.ts
 new file mode 100644
-index 0000000..69ed837
+index 0000000000000000000000000000000000000000..69ed83779e1dc00649c93ffdea345593736e7f1e
 --- /dev/null
 +++ b/src/apps/legacy/features/playback/utils/volumeWheel.test.ts
 @@ -0,0 +1,61 @@
@@ -5656,7 +5583,7 @@ index 0000000..69ed837
 +});
 diff --git a/src/apps/legacy/features/playback/utils/volumeWheel.ts b/src/apps/legacy/features/playback/utils/volumeWheel.ts
 new file mode 100644
-index 0000000..31de6d7
+index 0000000000000000000000000000000000000000..31de6d709766447f0ab3eaefabb40e3000af485b
 --- /dev/null
 +++ b/src/apps/legacy/features/playback/utils/volumeWheel.ts
 @@ -0,0 +1,26 @@
@@ -5687,7 +5614,7 @@ index 0000000..31de6d7
 +    return () => target.removeEventListener('wheel', onWheel);
 +}
 diff --git a/src/apps/legacy/routes/legacyRoutes/user.ts b/src/apps/legacy/routes/legacyRoutes/user.ts
-index 612572a..f3ad4a1 100644
+index 612572a865cba4dce5fcc6f6f91b63b3d21df391..f3ad4a18f5b51421f5fa4db8e8d05838f71e698f 100644
 --- a/src/apps/legacy/routes/legacyRoutes/user.ts
 +++ b/src/apps/legacy/routes/legacyRoutes/user.ts
 @@ -1,6 +1,7 @@
@@ -5727,7 +5654,7 @@ index 612572a..f3ad4a1 100644
 +    householdFeaturesEnabled() || !['community', 'request-media'].includes(route.path || '')
 +);
 diff --git a/src/apps/modern/components/drawers/MainDrawerContent.tsx b/src/apps/modern/components/drawers/MainDrawerContent.tsx
-index 3c4f1a0..7b58f1e 100644
+index 3c4f1a043c7c58fc1cf35131f01e0ba5c5a67191..7b58f1e68dbf4ac2f85f0cf723903aef37ca59eb 100644
 --- a/src/apps/modern/components/drawers/MainDrawerContent.tsx
 +++ b/src/apps/modern/components/drawers/MainDrawerContent.tsx
 @@ -1,5 +1,8 @@
@@ -5765,7 +5692,7 @@ index 3c4f1a0..7b58f1e 100644
  
              {/* CUSTOM LINKS */}
 diff --git a/src/apps/modern/routes/legacyRoutes/user.ts b/src/apps/modern/routes/legacyRoutes/user.ts
-index 2dd81a4..21f3f58 100644
+index 2dd81a4b65edde06a2dc1870ce1d5f1f0fad4273..21f3f58f15c68682fba60eeefe6f80fcca4afcf9 100644
 --- a/src/apps/modern/routes/legacyRoutes/user.ts
 +++ b/src/apps/modern/routes/legacyRoutes/user.ts
 @@ -1,6 +1,7 @@
@@ -5833,9 +5760,75 @@ Jzj)K%{tLQ|+}QvC
 literal 0
 HcmV?d00001
 
+diff --git a/src/components/homesections/homesections.js b/src/components/homesections/homesections.js
+index 1a0363757afc663a10a1dbb248e4bd3bf481dfaa..9f6a5f39352fc70b9548d35f1c9ac633d5969b38 100644
+--- a/src/components/homesections/homesections.js
++++ b/src/components/homesections/homesections.js
+@@ -1,3 +1,5 @@
++import { householdFeaturesEnabled } from 'scripts/community/clientCompatibility';
++import { collectionsLast } from 'scripts/community/homeOrder';
+ import layoutManager from 'components/layoutManager';
+ import { DEFAULT_SECTIONS, HomeSectionType } from 'constants/homeSectionType';
+ import { getUserViewsQuery } from 'hooks/api/useUserViews';
+@@ -62,6 +64,7 @@ export function loadSections(elem, apiClient, user, userSettings) {
+         .fetchQuery(getUserViewsQuery(api, { userId }))
+         .then(result => result.Items || [])
+         .then(function (userViews) {
++            if (householdFeaturesEnabled()) userViews = collectionsLast(userViews);
+             let html = '';
+ 
+             if (userViews.length) {
+@@ -140,6 +143,7 @@ export function resume(elem, options) {
+ 
+ function loadSection(page, apiClient, user, userSettings, userViews, section, index) {
+     const elem = page.querySelector('.section' + index);
++    elem.dataset.homeSection = section;
+     const options = { enableOverflow: enableScrollX() };
+ 
+     switch (section) {
+diff --git a/src/components/itemContextMenu.js b/src/components/itemContextMenu.js
+index 7b71363d13b2a63c5f70a05648515cd693776b6c..9f43a46574725b10534667c9248d82cd2ab905de 100644
+--- a/src/components/itemContextMenu.js
++++ b/src/components/itemContextMenu.js
+@@ -1,3 +1,4 @@
++import { removeFromContinueWatching } from './removeFromContinueWatching';
+ import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
+ import { getLibraryApi } from '@jellyfin/sdk/lib/utils/api/library-api';
+ 
+@@ -49,6 +50,15 @@ export async function getCommands(options) {
+ 
+     const commands = [];
+ 
++    if (item.Type === BaseItemKind.Movie && item.UserData?.PlaybackPositionTicks > 0 && user?.Id) {
++        commands.push({
++            name: globalize.translate('RemoveFromContinueWatching'),
++            id: 'removefromcontinuewatching',
++            icon: 'playlist_remove'
++        });
++    }
++
++
+     if (canPlay && item.MediaType !== 'Photo') {
+         if (options.play !== false) {
+             commands.push({
+@@ -394,6 +404,14 @@ function executeCommand(item, id, options) {
+     return new Promise(function (resolve, reject) {
+         // eslint-disable-next-line sonarjs/max-switch-cases
+         switch (id) {
++            case 'removefromcontinuewatching':
++                removeFromContinueWatching(api, itemId, apiClient.getCurrentUserId())
++                    .then(() => {
++                        toast(globalize.translate('RemovedFromContinueWatching'));
++                        getResolveFunction(resolve, id, true)();
++                    }, reject);
++                break;
++
+             case 'addtocollection':
+                 import('./collectionEditor/collectionEditor').then(({ default: CollectionEditor }) => {
+                     const collectionEditor = new CollectionEditor();
 diff --git a/src/scripts/community/api.js b/src/scripts/community/api.js
 new file mode 100644
-index 0000000..fbd4fc4
+index 0000000000000000000000000000000000000000..fbd4fc4725dc5c5ee434d80ce7b2ee18f3ff3e5b
 --- /dev/null
 +++ b/src/scripts/community/api.js
 @@ -0,0 +1,67 @@
@@ -5908,7 +5901,7 @@ index 0000000..fbd4fc4
 +/* eslint-enable sonarjs/pseudo-random */
 diff --git a/src/scripts/community/chat.js b/src/scripts/community/chat.js
 new file mode 100644
-index 0000000..e599cbf
+index 0000000000000000000000000000000000000000..e599cbfbdfd8563251ab9ae4eb3819caa7f326ab
 --- /dev/null
 +++ b/src/scripts/community/chat.js
 @@ -0,0 +1,266 @@
@@ -6180,7 +6173,7 @@ index 0000000..e599cbf
 +export function resetChat() { if (dock) { dock.reset(); dock.me=null; dock.root.hidden=true; } }
 diff --git a/src/scripts/community/chat.test.ts b/src/scripts/community/chat.test.ts
 new file mode 100644
-index 0000000..09b57e4
+index 0000000000000000000000000000000000000000..09b57e4e91db2c0b035f7d908d7d140c9c94a06a
 --- /dev/null
 +++ b/src/scripts/community/chat.test.ts
 @@ -0,0 +1,70 @@
@@ -6256,7 +6249,7 @@ index 0000000..09b57e4
 +});
 diff --git a/src/scripts/community/clientCompatibility.js b/src/scripts/community/clientCompatibility.js
 new file mode 100644
-index 0000000..1b5d0e3
+index 0000000000000000000000000000000000000000..1b5d0e3ce93fe81864833d4548398e86a2359bdf
 --- /dev/null
 +++ b/src/scripts/community/clientCompatibility.js
 @@ -0,0 +1,5 @@
@@ -6267,7 +6260,7 @@ index 0000000..1b5d0e3
 +}
 diff --git a/src/scripts/community/clientCompatibility.test.ts b/src/scripts/community/clientCompatibility.test.ts
 new file mode 100644
-index 0000000..4fdf3cd
+index 0000000000000000000000000000000000000000..4fdf3cdd5a4e4bddb8b33c5aac5293df3d531b81
 --- /dev/null
 +++ b/src/scripts/community/clientCompatibility.test.ts
 @@ -0,0 +1,37 @@
@@ -6310,7 +6303,7 @@ index 0000000..4fdf3cd
 +});
 diff --git a/src/scripts/community/community.scss b/src/scripts/community/community.scss
 new file mode 100644
-index 0000000..a9ac3cf
+index 0000000000000000000000000000000000000000..a9ac3cf4830b286dd77bd66d3d6b48eac0d20f91
 --- /dev/null
 +++ b/src/scripts/community/community.scss
 @@ -0,0 +1,206 @@
@@ -6522,7 +6515,7 @@ index 0000000..a9ac3cf
 +.communityChatDock.communityChatPlayback.communityChatControlsHidden .communityChatLauncher { opacity: 0; visibility: hidden; pointer-events: none; }
 diff --git a/src/scripts/community/emojiDisplay.js b/src/scripts/community/emojiDisplay.js
 new file mode 100644
-index 0000000..569594e
+index 0000000000000000000000000000000000000000..569594ed88d73b8a267697621ec4ef96b079c9a4
 --- /dev/null
 +++ b/src/scripts/community/emojiDisplay.js
 @@ -0,0 +1,30 @@
@@ -6558,7 +6551,7 @@ index 0000000..569594e
 +}
 diff --git a/src/scripts/community/emojiDisplay.test.ts b/src/scripts/community/emojiDisplay.test.ts
 new file mode 100644
-index 0000000..9fa261a
+index 0000000000000000000000000000000000000000..9fa261ac33eb9db3dcc5414162a2dbd2ab734bea
 --- /dev/null
 +++ b/src/scripts/community/emojiDisplay.test.ts
 @@ -0,0 +1,13 @@
@@ -6577,7 +6570,7 @@ index 0000000..9fa261a
 +});
 diff --git a/src/scripts/community/emojiPicker.js b/src/scripts/community/emojiPicker.js
 new file mode 100644
-index 0000000..e8e6e4a
+index 0000000000000000000000000000000000000000..e8e6e4a58b17b4aec6bc2d75fc79754bf48895c0
 --- /dev/null
 +++ b/src/scripts/community/emojiPicker.js
 @@ -0,0 +1,83 @@
@@ -6666,7 +6659,7 @@ index 0000000..e8e6e4a
 +}
 diff --git a/src/scripts/community/emojiPicker.test.ts b/src/scripts/community/emojiPicker.test.ts
 new file mode 100644
-index 0000000..37d6ba7
+index 0000000000000000000000000000000000000000..37d6ba771896b2ecb572ed3ec42dbdc1adfa7e97
 --- /dev/null
 +++ b/src/scripts/community/emojiPicker.test.ts
 @@ -0,0 +1,29 @@
@@ -6701,7 +6694,7 @@ index 0000000..37d6ba7
 +});
 diff --git a/src/scripts/community/holdAdvance.js b/src/scripts/community/holdAdvance.js
 new file mode 100644
-index 0000000..14bc3bc
+index 0000000000000000000000000000000000000000..14bc3bc1eb2e679c363c4d411d3de1c75842f04f
 --- /dev/null
 +++ b/src/scripts/community/holdAdvance.js
 @@ -0,0 +1,28 @@
@@ -6735,7 +6728,7 @@ index 0000000..14bc3bc
 +}
 diff --git a/src/scripts/community/holdAdvance.test.ts b/src/scripts/community/holdAdvance.test.ts
 new file mode 100644
-index 0000000..454d5b8
+index 0000000000000000000000000000000000000000..454d5b829ece1d39661c9b6c6dac051d9043132f
 --- /dev/null
 +++ b/src/scripts/community/holdAdvance.test.ts
 @@ -0,0 +1,29 @@
@@ -6770,7 +6763,7 @@ index 0000000..454d5b8
 +});
 diff --git a/src/scripts/community/legacyWebos.test.ts b/src/scripts/community/legacyWebos.test.ts
 new file mode 100644
-index 0000000..3c608e9
+index 0000000000000000000000000000000000000000..3c608e9644604c388d0a4274d045191a38653943
 --- /dev/null
 +++ b/src/scripts/community/legacyWebos.test.ts
 @@ -0,0 +1,35 @@
@@ -6811,7 +6804,7 @@ index 0000000..3c608e9
 +});
 diff --git a/src/scripts/community/online.js b/src/scripts/community/online.js
 new file mode 100644
-index 0000000..36d2b7d
+index 0000000000000000000000000000000000000000..36d2b7d3e6c732e7859eea7edd327d1e812a17fc
 --- /dev/null
 +++ b/src/scripts/community/online.js
 @@ -0,0 +1,142 @@
@@ -6959,7 +6952,7 @@ index 0000000..36d2b7d
 +}
 diff --git a/src/scripts/community/online.test.ts b/src/scripts/community/online.test.ts
 new file mode 100644
-index 0000000..936038c
+index 0000000000000000000000000000000000000000..936038cbf73dd12817533f823990ac071f3252d0
 --- /dev/null
 +++ b/src/scripts/community/online.test.ts
 @@ -0,0 +1,72 @@
@@ -7037,7 +7030,7 @@ index 0000000..936038c
 +});
 diff --git a/src/scripts/community/playbackPosition.js b/src/scripts/community/playbackPosition.js
 new file mode 100644
-index 0000000..bfb8482
+index 0000000000000000000000000000000000000000..bfb848237715bb714d5065e5649078573c927912
 --- /dev/null
 +++ b/src/scripts/community/playbackPosition.js
 @@ -0,0 +1,35 @@
@@ -7078,7 +7071,7 @@ index 0000000..bfb8482
 +}
 diff --git a/src/scripts/community/playbackPosition.test.ts b/src/scripts/community/playbackPosition.test.ts
 new file mode 100644
-index 0000000..3e086b0
+index 0000000000000000000000000000000000000000..3e086b0e568fc09bcbdf9994d4a315cd4caf40ef
 --- /dev/null
 +++ b/src/scripts/community/playbackPosition.test.ts
 @@ -0,0 +1,31 @@
@@ -7115,7 +7108,7 @@ index 0000000..3e086b0
 +});
 diff --git a/src/scripts/community/presence.js b/src/scripts/community/presence.js
 new file mode 100644
-index 0000000..d6552fb
+index 0000000000000000000000000000000000000000..d6552fb3548701a5b202ad33bd22102dcd87012a
 --- /dev/null
 +++ b/src/scripts/community/presence.js
 @@ -0,0 +1,115 @@
@@ -7236,7 +7229,7 @@ index 0000000..d6552fb
 +/* eslint-enable @stylistic/max-statements-per-line */
 diff --git a/src/scripts/community/presence.test.ts b/src/scripts/community/presence.test.ts
 new file mode 100644
-index 0000000..0c888eb
+index 0000000000000000000000000000000000000000..0c888eb1e06217cf9241b89385b3524433e15731
 --- /dev/null
 +++ b/src/scripts/community/presence.test.ts
 @@ -0,0 +1,25 @@
@@ -7267,7 +7260,7 @@ index 0000000..0c888eb
 +});
 diff --git a/src/scripts/community/preview.js b/src/scripts/community/preview.js
 new file mode 100644
-index 0000000..24b2026
+index 0000000000000000000000000000000000000000..24b2026d2251ace5eced18413958bc9d445d831c
 --- /dev/null
 +++ b/src/scripts/community/preview.js
 @@ -0,0 +1,196 @@
@@ -7469,7 +7462,7 @@ index 0000000..24b2026
 +/* eslint-enable @stylistic/max-statements-per-line, no-void, sonarjs/pseudo-random */
 diff --git a/src/scripts/community/preview.test.ts b/src/scripts/community/preview.test.ts
 new file mode 100644
-index 0000000..37b54ed
+index 0000000000000000000000000000000000000000..37b54ed006807fd17bdc8285935c6e5c9fd9eaa6
 --- /dev/null
 +++ b/src/scripts/community/preview.test.ts
 @@ -0,0 +1,19 @@
@@ -7494,7 +7487,7 @@ index 0000000..37b54ed
 +});
 diff --git a/src/scripts/community/requestBoard.js b/src/scripts/community/requestBoard.js
 new file mode 100644
-index 0000000..556c08f
+index 0000000000000000000000000000000000000000..556c08f9dd4d6d852de65a8fc27518af3dae745b
 --- /dev/null
 +++ b/src/scripts/community/requestBoard.js
 @@ -0,0 +1,87 @@
@@ -7587,7 +7580,7 @@ index 0000000..556c08f
 +}
 diff --git a/src/scripts/community/requestBoard.test.ts b/src/scripts/community/requestBoard.test.ts
 new file mode 100644
-index 0000000..bad63f3
+index 0000000000000000000000000000000000000000..bad63f367a13ac853ebce4d7a8b757a1e43f3187
 --- /dev/null
 +++ b/src/scripts/community/requestBoard.test.ts
 @@ -0,0 +1,79 @@
@@ -7672,7 +7665,7 @@ index 0000000..bad63f3
 +});
 diff --git a/src/scripts/community/socialWidgets.js b/src/scripts/community/socialWidgets.js
 new file mode 100644
-index 0000000..a9f0d12
+index 0000000000000000000000000000000000000000..a9f0d12539360bbffd1dd7be20274a59cb6a32d8
 --- /dev/null
 +++ b/src/scripts/community/socialWidgets.js
 @@ -0,0 +1,104 @@
@@ -7782,7 +7775,7 @@ index 0000000..a9f0d12
 +}
 diff --git a/src/scripts/community/socialWidgets.test.ts b/src/scripts/community/socialWidgets.test.ts
 new file mode 100644
-index 0000000..3c973da
+index 0000000000000000000000000000000000000000..3c973da52cb3b10b97e52be26158e46af52de0c1
 --- /dev/null
 +++ b/src/scripts/community/socialWidgets.test.ts
 @@ -0,0 +1,9 @@
@@ -7796,7 +7789,7 @@ index 0000000..3c973da
 +    updateOnline([]); expect(dot.hidden).toBe(true); dot.remove();
 +});
 diff --git a/src/scripts/libraryMenu.js b/src/scripts/libraryMenu.js
-index 7b818d4..b983b3d 100644
+index 7b818d46879feef309ba20ad28e959001d0120ee..b983b3db58b84b264f235b6453bc6f0303cc6ac1 100644
 --- a/src/scripts/libraryMenu.js
 +++ b/src/scripts/libraryMenu.js
 @@ -1,3 +1,4 @@
@@ -7876,6 +7869,181 @@ index 7b818d4..b983b3d 100644
      currentUser = {};
      updateUserInHeader();
  });
--- 
-2.43.0
-
+diff --git a/src/strings/cs.json b/src/strings/cs.json
+index 8f7d3d4a05d41a6b453fa5cd5b770cbcf06dd31e..ba9ee2efd0f2445899be31489eb490d2cfa7f4cf 100644
+--- a/src/strings/cs.json
++++ b/src/strings/cs.json
+@@ -1945,5 +1945,7 @@
+     "HlsAudioSeekStrategy": "Strategie pro vyhledávání v datových tocích HLS.",
+     "LabelHlsAudioSeekStrategy": "Strategie vyhledávání v audiu.",
+     "MessageForgotPasswordRedirect": "Byli jste přesměrováni na stránku externího poskytovatele za účelem resetování hesla.",
+-    "MessageItemMetadataLocked": "Metadata této položky jsou uzamčena. Odemkněte je před použitím funkce Identifikovat."
++    "MessageItemMetadataLocked": "Metadata této položky jsou uzamčena. Odemkněte je před použitím funkce Identifikovat.",
++    "RemoveFromContinueWatching": "Odebrat z Pokračovat ve sledování",
++    "RemovedFromContinueWatching": "Odebráno z Pokračovat ve sledování"
+ }
+diff --git a/src/strings/en-us.json b/src/strings/en-us.json
+index 596b96f708af831178fc746da0e125300eaa9980..8f31f3c788b4462d7c26b86aa158ba9022d80f12 100755
+--- a/src/strings/en-us.json
++++ b/src/strings/en-us.json
+@@ -1945,5 +1945,7 @@
+     "LabelPlayerSizes": "Player sizes",
+     "LabelPlaybackQuality": "Frame dropped / corrupted",
+     "AudioLanguages": "Audio languages",
+-    "SubtitleLanguages": "Subtitle languages"
++    "SubtitleLanguages": "Subtitle languages",
++    "RemoveFromContinueWatching": "Remove from Continue Watching",
++    "RemovedFromContinueWatching": "Removed from Continue Watching"
+ }
+diff --git a/src/components/itemContextMenu.resume.test.ts b/src/components/itemContextMenu.resume.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..89d358b847dfc838fc1731b6e395993904975b23
+--- /dev/null
++++ b/src/components/itemContextMenu.resume.test.ts
+@@ -0,0 +1,52 @@
++import { afterEach, expect, test, vi } from 'vitest';
++import { Api } from '@jellyfin/sdk/lib/api';
++import axios from 'axios';
++const state=vi.hoisted(()=>({api:undefined as unknown,currentUser:'alice'}));
++vi.mock('lib/jellyfin-apiclient',()=>({ServerConnections:{getApi:()=>state.api,getApiClient:()=>({getCurrentUserId:()=>state.currentUser})}}));
++vi.mock('../scripts/browser',()=>({default:{tv:false}}));
++vi.mock('../scripts/clipboard',()=>({copy:vi.fn()}));
++vi.mock('../utils/dom',()=>({default:{parentWithClass:()=>null}}));
++vi.mock('../lib/globalize',()=>({default:{translate:(key:string)=>key}}));
++vi.mock('./actionSheet/actionSheet',()=>({default:{show:vi.fn(async()=> 'removefromcontinuewatching')}}));
++vi.mock('./apphost',()=>({appHost:{supports:()=>false}}));
++vi.mock('./router/appRouter',()=>({appRouter:{}}));
++vi.mock('./itemHelper',()=>({default:new Proxy({},{get:()=>()=>false}),canEditPlaylist:()=>false}));
++vi.mock('./playback/playbackmanager',()=>({playbackManager:{canPlay:()=>true,canQueue:()=>false,getCurrentPlayer:()=>null}}));
++vi.mock('./toast/toast',()=>({default:vi.fn()}));
++vi.mock('../scripts/settings/userSettings',()=>({}));
++vi.mock('utils/query/queryClient',()=>({queryClient:{invalidateQueries:vi.fn(async()=>{})}}));
++import menu, { getCommands } from './itemContextMenu';
++import { queryClient } from 'utils/query/queryClient';
++const item={Id:'movie',ServerId:'server',Type:'Movie',MediaType:'Video',CanDelete:false,UserData:{PlaybackPositionTicks:7000}};
++const options={item,user:{Id:'alice',Policy:{IsAdministrator:false}}};
++afterEach(()=>vi.clearAllMocks());
++test('ordinary viewers get a separate remove-resume command, without delete permissions',async()=>{
++ const commands=await getCommands(options);
++ expect(commands.some(command=>command.id==='removefromcontinuewatching')).toBe(true);
++ expect(commands.some(command=>command.id==='delete')).toBe(false);
++ expect((await getCommands({...options,item:{...item,UserData:{PlaybackPositionTicks:0}}})).some(command=>command.id==='removefromcontinuewatching')).toBe(false);
++});
++test('removing resume updates only the current user and keeps watched state, counts and favourites',async()=>{
++ const seen:{method:string,url:string,body:Record<string,unknown>|null}[]=[];
++ const original={PlaybackPositionTicks:7000,Played:false,PlayCount:3,IsFavorite:true,LastPlayedDate:'2026-11-17T12:00:00Z',Key:'movie',PlayedPercentage:30};
++ const users={alice:{...original},bob:{...original,PlaybackPositionTicks:9000}};
++ state.api=new Api('https://fixture.invalid/jellyfin',{name:'fixture',version:'1'},{name:'fixture',id:'fixture'},'fixture-token',axios.create({adapter:async config=>{
++  const url=new URL(config.url!,'https://fixture.invalid');expect(url.searchParams.get('userId')).toBe('alice');
++  const body=config.data ? JSON.parse(config.data):null;seen.push({method:config.method!,url:url.pathname,body});
++  if(config.method==='post')Object.assign(users.alice,body);
++  return {status:200,statusText:'OK',headers:{},config,data:{...users.alice}};
++ }}));
++ const result=await menu.show(options);
++ expect(seen.map(x=>[x.method,x.url])).toEqual([['get','/jellyfin/UserItems/movie/UserData'],['post','/jellyfin/UserItems/movie/UserData']]);
++ expect(seen[1].body?.PlaybackPositionTicks).toBe(0);expect(seen[1].body).not.toHaveProperty('PlayedPercentage');
++ expect(users.alice).toEqual({...original,PlaybackPositionTicks:0});expect(users.bob.PlaybackPositionTicks).toBe(9000);
++ expect(result).toMatchObject({updated:true,command:'removefromcontinuewatching'});
++ expect(queryClient.invalidateQueries).toHaveBeenCalledWith({queryKey:['User','alice','ResumeItems']});
++});
++
++test('server errors are reported without clearing caches or treating the removal as successful',async()=>{
++ let calls=0;
++ state.api=new Api('https://fixture.invalid/jellyfin',{name:'fixture',version:'1'},{name:'fixture',id:'fixture'},'fixture-token',axios.create({adapter:async()=>{calls++;throw new Error('Access denied');}}));
++ await expect(menu.show(options)).rejects.toThrow('Access denied');
++ expect(calls).toBe(1);expect(queryClient.invalidateQueries).not.toHaveBeenCalled();
++});
+diff --git a/src/components/removeFromContinueWatching.ts b/src/components/removeFromContinueWatching.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..dbb265851ed9863497ef5e8a2aaceeb4ede73c82
+--- /dev/null
++++ b/src/components/removeFromContinueWatching.ts
+@@ -0,0 +1,27 @@
++import type { Api } from '@jellyfin/sdk/lib/api';
++import { getUserDataApi } from '@jellyfin/sdk/lib/utils/api/user-data-api';
++
++import { queryClient } from 'utils/query/queryClient';
++
++/** Clear only the signed-in user's resume point; never delete media or mark it played. */
++export async function removeFromContinueWatching(api: Api, itemId: string, userId: string) {
++    if (!itemId || !userId) throw new Error('A signed-in user and movie are required');
++    const userDataApi = getUserDataApi(api);
++    const { data } = await userDataApi.getItemUserData({ itemId, userId });
++    await userDataApi.updateItemUserData({
++        itemId,
++        userId,
++        updateUserItemDataDto: {
++            Rating: data.Rating,
++            UnplayedItemCount: data.UnplayedItemCount,
++            PlayCount: data.PlayCount,
++            IsFavorite: data.IsFavorite,
++            Likes: data.Likes,
++            LastPlayedDate: data.LastPlayedDate,
++            Played: data.Played,
++            Key: data.Key,
++            PlaybackPositionTicks: 0
++        }
++    });
++    await queryClient.invalidateQueries({ queryKey: ['User', userId, 'ResumeItems'] });
++}
+diff --git a/src/scripts/community/homeOrder.js b/src/scripts/community/homeOrder.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..08337c904ac70fe6c6855a074d2ad444654f3ef4
+--- /dev/null
++++ b/src/scripts/community/homeOrder.js
+@@ -0,0 +1,18 @@
++// Move existing rows only: preserve their contents, handlers and relative order.
++export function arrangeHomeSections(host, requests, community) {
++    const rows = Array.from(host.children).filter(row => row !== requests && row !== community);
++    const type = row => row.dataset.homeSection;
++    const latest = rows.filter(row => type(row) === 'latestmedia');
++    const resume = rows.filter(row => type(row) === 'resume');
++    const nextUp = rows.filter(row => type(row) === 'nextup');
++    const libraries = rows.filter(row => ['smalllibrarytiles', 'librarybuttons'].includes(type(row)));
++    const rest = rows.filter(row => !latest.includes(row) && !resume.includes(row) && !nextUp.includes(row) && !libraries.includes(row));
++    host.append(requests, ...resume, ...nextUp, ...latest, community, ...rest, ...libraries);
++}
++
++export function collectionsLast(views) {
++    return [
++        ...views.filter(view => view.CollectionType !== 'boxsets'),
++        ...views.filter(view => view.CollectionType === 'boxsets')
++    ];
++}
+diff --git a/src/scripts/community/homeOrder.test.ts b/src/scripts/community/homeOrder.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3cd9bb692f0c6ed6fffa8a20c162d1f6736bf1ad
+--- /dev/null
++++ b/src/scripts/community/homeOrder.test.ts
+@@ -0,0 +1,31 @@
++import { afterEach, expect, test, vi } from 'vitest';
++vi.mock('scripts/settings/userSettings',()=>({}));
++vi.mock('components/focusManager',()=>({default:{autoFocus:vi.fn()}}));
++vi.mock('components/homesections/homesections',()=>({default:{
++ loadSections:async (host:HTMLElement)=>{host.innerHTML='<section data-home-section="smalllibrarytiles">My Media</section><section data-home-section="resume">Continue Watching</section><section data-home-section="nextup">Next Up</section><section data-home-section="latestmedia">Recently Added</section>';},
++ resume:async()=>{},pause:()=>{},destroySections:(host:HTMLElement)=>{host.innerHTML='';}
++}}));
++vi.mock('lib/jellyfin-apiclient',()=>({ServerConnections:{currentApiClient:()=>({getCurrentUser:async()=>({})})}}));
++vi.mock('elements/emby-itemscontainer/emby-itemscontainer',()=>({}));
++vi.mock('./preview',()=>({CommunityPreview:class {constructor(host:HTMLElement){host.textContent='Community';}resume(){}pause(){}destroy(){}}}));
++vi.mock('./requestBoard',()=>({RequestBoardPreview:class {constructor(host:HTMLElement){host.textContent='Requests';}resume(){}pause(){}destroy(){}}}));
++import HomeTab from '../../apps/legacy/controllers/hometab';
++afterEach(()=>{vi.restoreAllMocks();document.body.innerHTML='';});
++test('shared home orders requests, resume, next up, recent additions, community and library tiles on repeated renders',async()=>{
++ const view=document.createElement('div');view.innerHTML='<div class="sections"></div>';document.body.append(view);
++ const tab=new HomeTab(view,{});
++ for(let i=0;i<2;i++){
++  await tab.onResume({});
++  const rows=Array.from(view.querySelector('.sections')!.children).map(node=>node.textContent);
++  expect(rows).toEqual(['Requests','Continue Watching','Next Up','Recently Added','Community','My Media']);
++  tab.sectionsRendered=false;
++ }
++ tab.destroy();
++});
++
++test('Collections moves last without changing the order or contents of the other library entries',async()=>{
++ const {collectionsLast}=await import('./homeOrder');
++ const views=[{Id:'collections',CollectionType:'boxsets'},{Id:'tv',CollectionType:'livetv'},{Id:'movies',CollectionType:'movies'},{Id:'shows',CollectionType:'tvshows'}];
++ expect(collectionsLast(views).map(item=>item.Id)).toEqual(['tv','movies','shows','collections']);
++ expect(views.map(item=>item.Id)).toEqual(['collections','tv','movies','shows']);
++});
